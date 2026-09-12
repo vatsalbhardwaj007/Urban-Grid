@@ -10,13 +10,16 @@ WORKSPACE_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKSPACE_ROOT))
 
+from backend.api.websocket import get_connection_manager
 from simulation.sumo.actuation import ActionDispatcher
+from simulation.sumo.control_loop import SimulationControlLoop
 from simulation.sumo.state_provider import TrafficStateProvider
 from simulation.sumo.traci_bridge import TraCIBridge
 
 _bridge: TraCIBridge | None = None
 _provider: TrafficStateProvider | None = None
 _dispatcher: ActionDispatcher | None = None
+_control_loop: SimulationControlLoop | None = None
 
 
 def get_bridge() -> TraCIBridge:
@@ -55,6 +58,24 @@ def get_action_dispatcher() -> ActionDispatcher:
     return _dispatcher
 
 
+def get_control_loop() -> SimulationControlLoop:
+    """Return the managed SimulationControlLoop singleton.
+
+    Wires together TrafficStateProvider, ActionDispatcher, and WebSocket broadcaster.
+    """
+    global _control_loop
+    if _control_loop is None:
+        provider = get_state_provider()
+        dispatcher = get_action_dispatcher()
+        broadcaster = get_connection_manager()
+        _control_loop = SimulationControlLoop(
+            provider=provider,
+            dispatcher=dispatcher,
+            broadcaster=broadcaster,
+        )
+    return _control_loop
+
+
 def start_simulation() -> TrafficStateProvider:
     """Initialize and start the simulation connection on application startup."""
     provider = get_state_provider()
@@ -65,7 +86,10 @@ def start_simulation() -> TrafficStateProvider:
 
 def stop_simulation() -> None:
     """Terminate TraCI and cleanly shut down the SUMO process."""
-    global _bridge, _provider, _dispatcher
+    global _bridge, _provider, _dispatcher, _control_loop
+    if _control_loop is not None:
+        _control_loop._is_running = False
+    _control_loop = None
     if _bridge is not None:
         _bridge.close()
     _bridge = None

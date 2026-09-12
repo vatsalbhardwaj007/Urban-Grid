@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from backend.api.dependencies import (
     get_action_dispatcher,
+    get_control_loop,
     get_state_provider,
     start_simulation,
     stop_simulation,
@@ -44,6 +45,7 @@ from simulation.sumo.actuation import (
     UnknownTrafficLightError,
     UnknownVehicleError,
 )
+from simulation.sumo.control_loop import ControlCycleResult, SimulationControlLoop
 from simulation.sumo.state_provider import TrafficStateProvider
 from simulation.sumo.traci_bridge import TraCIBridgeError
 
@@ -84,6 +86,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        await get_control_loop().stop()
         await get_connection_manager().disconnect_all()
         stop_simulation()
 
@@ -323,4 +326,60 @@ def control_route(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Route actuation failed: {exc}",
         ) from exc
+
+
+class ControlLoopStatusResponse(BaseModel):
+    """Response model reporting current simulation control loop status."""
+
+    is_running: bool = Field(description="Whether the control loop is currently running.")
+    current_cycle: int = Field(description="Total cycles executed so far.")
+    step_interval: int = Field(description="Simulation steps per control cycle.")
+    cycle_delay: float = Field(description="Configured delay in seconds between cycles.")
+    error_policy: str = Field(description="Action error handling policy ('continue' or 'stop').")
+    decision_engine: str = Field(description="Class name of the active M1 decision engine.")
+
+
+@app.get(
+    "/api/control/loop/status",
+    response_model=ControlLoopStatusResponse,
+    summary="Get status of M2 simulation control loop",
+    tags=["Control Loop"],
+)
+def get_control_loop_status(
+    control_loop: SimulationControlLoop = Depends(get_control_loop),
+) -> ControlLoopStatusResponse:
+    """Return live status of the closed-loop orchestrator."""
+    return ControlLoopStatusResponse(
+        is_running=control_loop.is_running,
+        current_cycle=control_loop.current_cycle,
+        step_interval=control_loop.step_interval,
+        cycle_delay=control_loop.cycle_delay,
+        error_policy=control_loop.error_policy,
+        decision_engine=type(control_loop.decision_engine).__name__,
+    )
+
+
+@app.post(
+    "/api/control/loop/step",
+    response_model=ControlCycleResult,
+    summary="Execute one closed-loop control cycle",
+    tags=["Control Loop"],
+)
+def execute_control_loop_cycle(
+    control_loop: SimulationControlLoop = Depends(get_control_loop),
+) -> ControlCycleResult:
+    """Advance simulation and execute one closed-loop cycle (step -> state -> M1 -> TraCI)."""
+    try:
+        return control_loop.step_cycle()
+    except SimulationDisconnectedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    except ActuationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Control loop cycle failed: {exc}",
+        ) from exc
+
 
