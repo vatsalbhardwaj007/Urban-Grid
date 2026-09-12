@@ -1,0 +1,2 @@
+import type { VehicleState } from '../types/digitalTwin'
+export const mockVehicles: VehicleState[] = [{id:'V1',x:-7,z:5.8,heading:0,speed:42}, {id:'V2',x:1,z:5.4,heading:0,speed:36}, {id:'V3',x:5,z:3.5,heading:1.98,speed:18}, {id:'V4',x:1,z:-4,heading:-2.72,speed:22}, {id:'V5',x:-5,z:-5.8,heading:2.75,speed:29}, {id:'V6',x:-9.6,z:0,heading:1.83,speed:31}, {id:'V7',x:8,z:1,heading:-1.96,speed:21}, {id:'V8',x:-2.3,z:1.2,heading:-1.96,speed:25}]
