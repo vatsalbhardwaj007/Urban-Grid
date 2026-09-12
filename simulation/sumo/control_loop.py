@@ -39,6 +39,7 @@ from simulation.sumo.actuation import (
     SignalActuationResult,
     SimulationDisconnectedError,
 )
+from simulation.sumo.m1_adapter import RealM1DecisionEngine
 from simulation.sumo.state_provider import TrafficStateProvider
 from simulation.sumo.traci_bridge import TraCIBridgeError
 

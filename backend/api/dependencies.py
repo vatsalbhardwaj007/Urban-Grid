@@ -12,7 +12,12 @@ if str(WORKSPACE_ROOT) not in sys.path:
 
 from backend.api.websocket import get_connection_manager
 from simulation.sumo.actuation import ActionDispatcher
-from simulation.sumo.control_loop import SimulationControlLoop
+from simulation.sumo.control_loop import (
+    NullDecisionEngine,
+    RealM1DecisionEngine,
+    SimulationControlLoop,
+)
+from simulation.sumo.m1_adapter import HAS_M1
 from simulation.sumo.state_provider import TrafficStateProvider
 from simulation.sumo.traci_bridge import TraCIBridge
 
@@ -61,17 +66,24 @@ def get_action_dispatcher() -> ActionDispatcher:
 def get_control_loop() -> SimulationControlLoop:
     """Return the managed SimulationControlLoop singleton.
 
-    Wires together TrafficStateProvider, ActionDispatcher, and WebSocket broadcaster.
+    Wires together TrafficStateProvider, ActionDispatcher, WebSocket broadcaster,
+    and the production RealM1DecisionEngine.
     """
     global _control_loop
     if _control_loop is None:
         provider = get_state_provider()
         dispatcher = get_action_dispatcher()
         broadcaster = get_connection_manager()
+        bridge = get_bridge()
+        if HAS_M1:
+            decision_engine = RealM1DecisionEngine(bridge=bridge)
+        else:
+            decision_engine = NullDecisionEngine()
         _control_loop = SimulationControlLoop(
             provider=provider,
             dispatcher=dispatcher,
             broadcaster=broadcaster,
+            decision_engine=decision_engine,
         )
     return _control_loop
 
