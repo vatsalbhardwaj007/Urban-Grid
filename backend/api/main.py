@@ -15,7 +15,10 @@ WORKSPACE_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKSPACE_ROOT))
 
-from fastapi import Depends, FastAPI, HTTPException, status
+import json
+import logging
+
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -24,9 +27,12 @@ from backend.api.dependencies import (
     start_simulation,
     stop_simulation,
 )
+from backend.api.websocket import ConnectionManager, get_connection_manager
 from shared.schemas.traffic_state import TrafficState
 from simulation.sumo.state_provider import TrafficStateProvider
 from simulation.sumo.traci_bridge import TraCIBridgeError
+
+logger = logging.getLogger("urbangrid.api")
 
 
 class HealthResponse(BaseModel):
@@ -63,6 +69,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        await get_connection_manager().disconnect_all()
         stop_simulation()
 
 
@@ -174,15 +181,70 @@ def get_all_traffic_states(
     summary="Step simulation and return updated TrafficState for all intersections",
     tags=["Simulation Control"],
 )
-def step_simulation(
+async def step_simulation(
     request: StepRequest = StepRequest(),
     provider: TrafficStateProvider = Depends(get_state_provider),
+    manager: ConnectionManager = Depends(get_connection_manager),
 ) -> dict[str, TrafficState]:
-    """Advance SUMO by the requested steps and return updated states."""
+    """Advance SUMO by the requested steps and return updated states.
+
+    Also broadcasts canonical traffic.update events to all connected WebSocket clients.
+    """
     try:
-        return provider.step_and_get_states(steps=request.steps)
+        states = provider.step_and_get_states(steps=request.steps)
+        await manager.broadcast_all_states(states)
+        return states
     except TraCIBridgeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Simulation unavailable: {exc}",
         ) from exc
+
+
+@app.websocket("/ws/traffic")
+async def traffic_websocket_endpoint(
+    websocket: WebSocket,
+    provider: TrafficStateProvider = Depends(get_state_provider),
+    manager: ConnectionManager = Depends(get_connection_manager),
+) -> None:
+    """WebSocket stream publishing live canonical TrafficState updates.
+
+    SUMO -> M2 -> WebSocket -> M3/M4
+    """
+    await manager.connect(websocket)
+    try:
+        # Immediately send latest known TrafficState snapshot upon connection
+        if provider.is_connected:
+            try:
+                states = provider.get_all_states()
+                for state in states.values():
+                    await manager.send_traffic_state(websocket, state)
+            except Exception as exc:
+                logger.warning("Could not send initial traffic states to client: %s", exc)
+
+        # Keep stream open, handle incoming frames (ping/step/keepalive) cleanly
+        while True:
+            try:
+                message = await websocket.receive_text()
+            except WebSocketDisconnect:
+                break
+            except Exception:
+                # Transport or framing failure, close out connection
+                break
+
+            # Handle optional client message gracefully
+            try:
+                data = json.loads(message)
+                if isinstance(data, dict):
+                    action = data.get("action") or data.get("type")
+                    if action == "ping":
+                        await websocket.send_json({"event": "pong"})
+                    elif action == "step":
+                        steps = int(data.get("steps", 1))
+                        states = provider.step_and_get_states(steps=steps)
+                        await manager.broadcast_all_states(states)
+            except Exception:
+                # Malformed JSON or handling error is ignored without crashing
+                pass
+    finally:
+        await manager.disconnect(websocket)
