@@ -1,6 +1,7 @@
 /** Exact M2 TrafficState v1 contract. Do not add frontend-only fields here. */
 export type SignalPhase = 'RED' | 'YELLOW' | 'GREEN'
 export type ActionSource = 'AI' | 'FALLBACK' | 'MANUAL'
+export type ControlMode = 'AUTO' | 'MANUAL' | 'EMERGENCY'
 
 export interface LaneFeature {
   lane_id: string
@@ -32,10 +33,10 @@ export type TrafficSnapshot = Record<string, TrafficState>
 
 export interface HealthResponse { status: 'ok'; simulation_connected: boolean; simulation_time: number | null }
 export interface ApiErrorResponse { detail: string | Array<{ loc: Array<string | number>; msg: string; type: string }> }
-export interface ControlLoopStatus { is_running: boolean; current_cycle: number; step_interval: number; cycle_delay: number; error_policy: string; decision_engine: string }
+export interface ControlLoopStatus { mode: ControlMode; is_running: boolean; current_cycle: number; step_interval: number; cycle_delay: number; error_policy: string; decision_engine: string }
 export interface SignalActuationResult { success: boolean; target: string; applied_duration: number; current_phase: string; applied_to: string; source: ActionSource; message: string }
 /** M2 declares control-loop action_results as list[dict[str, Any]]. */
-export interface ControlCycleResult { cycle: number; simulation_time: number; states: TrafficSnapshot; actions_attempted: number; action_results: Array<Record<string, unknown>>; errors: string[]; success: boolean }
+export interface ControlCycleResult { cycle: number; simulation_time: number; mode: ControlMode; states: TrafficSnapshot; actions_attempted: number; action_results: Array<Record<string, unknown>>; errors: string[]; success: boolean }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 const isNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
@@ -43,6 +44,7 @@ const isNonNegativeNumber = (value: unknown): value is number => isNumber(value)
 const isNonNegativeInteger = (value: unknown): value is number => isNumber(value) && Number.isInteger(value) && value >= 0
 const isSignalPhase = (value: unknown): value is SignalPhase => value === 'RED' || value === 'YELLOW' || value === 'GREEN'
 const isActionSource = (value: unknown): value is ActionSource => value === 'AI' || value === 'FALLBACK' || value === 'MANUAL'
+export const isControlMode = (value: unknown): value is ControlMode => value === 'AUTO' || value === 'MANUAL' || value === 'EMERGENCY'
 
 export function isLaneFeature(value: unknown): value is LaneFeature {
   return isRecord(value) && typeof value.lane_id === 'string' && isNonNegativeInteger(value.vehicle_count) && isNonNegativeNumber(value.mean_speed) && isNonNegativeInteger(value.queue_length) && isNonNegativeNumber(value.occupancy) && isNonNegativeNumber(value.arrival_rate) && isNonNegativeNumber(value.density) && isNonNegativeNumber(value.flow)

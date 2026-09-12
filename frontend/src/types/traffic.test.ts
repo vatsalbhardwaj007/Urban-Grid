@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isSignalActuationResult, isTrafficSnapshot, isTrafficState, parseWebSocketMessage } from './traffic'
+import { isControlMode, isSignalActuationResult, isTrafficSnapshot, isTrafficState, parseWebSocketMessage } from './traffic'
 
 const trafficUpdate = {
   event: 'traffic.update',
@@ -35,5 +35,12 @@ describe('M2 TrafficState v1 parser', () => {
   it('only promotes a generic loop result when it is an actual signal result', () => {
     expect(isSignalActuationResult({ success: true, target: 'I1', applied_duration: 20, current_phase: 'GREEN', applied_to: 'active_green', source: 'AI', message: 'Applied.' })).toBe(true)
     expect(isSignalActuationResult({ success: true, target: 'veh-1', applied_route: ['e1'], previous_route: ['e0'], source: 'AI', message: 'Rerouted.' })).toBe(false)
+  })
+
+  it('accepts only the canonical M2 control modes', () => {
+    expect(isControlMode('AUTO')).toBe(true)
+    expect(isControlMode('MANUAL')).toBe(true)
+    expect(isControlMode('EMERGENCY')).toBe(true)
+    expect(isControlMode('auto')).toBe(false)
   })
 })

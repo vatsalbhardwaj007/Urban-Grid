@@ -16,14 +16,14 @@ function UrbanGridDashboard() {
   const [resetSignal, setResetSignal] = useState(0)
   const traffic = useTrafficStore()
   const selectedJunction = urbanGridTopology.junctions.find((junction) => junction.id === selectedJunctionId) ?? urbanGridTopology.junctions[0]
-  const renderTraffic = traffic.status === 'stale' || traffic.status === 'unavailable' ? {} : traffic.trafficByIntersection
+  const renderTraffic = traffic.status === 'disconnected' && traffic.health?.simulation_connected !== true ? {} : traffic.trafficByIntersection
 
   return <main className="app-shell">
     <TopBar status={traffic.status} health={traffic.health} lastReceivedAt={traffic.lastReceivedAt} />
     <div className="workspace">
-      <ControlSidebar viewMode={viewMode} selectedJunctionId={selectedJunctionId} onModeChange={setViewMode} onSelectJunction={setSelectedJunctionId} onStepAiLoop={traffic.stepAiLoop} stepDisabled={traffic.status === 'unavailable'} loopStatus={traffic.loopStatus} />
+      <ControlSidebar viewMode={viewMode} selectedJunctionId={selectedJunctionId} onModeChange={setViewMode} onSelectJunction={setSelectedJunctionId} onStepAiLoop={traffic.stepAiLoop} stepDisabled={traffic.health?.simulation_connected !== true} loopStatus={traffic.loopStatus} />
       <section className="twin-area" aria-label="Urban traffic digital twin">
-        <header className="twin-header"><div className="eyebrow"><span className="live-dot" /> {traffic.status === 'live' ? 'LIVE DIGITAL TWIN' : 'TRAFFIC TWIN'} <span>/</span> URBAN GRID <span>/</span> M2 STREAM</div><div className="updated">{traffic.lastReceivedAt ? `Updated ${new Date(traffic.lastReceivedAt).toLocaleTimeString()}` : 'Awaiting backend data'} <button onClick={() => setResetSignal((signal) => signal + 1)} title="Reset camera">⌗</button></div></header>
+        <header className="twin-header"><div className="eyebrow"><span className="live-dot" /> {traffic.status === 'connected' ? 'LIVE DIGITAL TWIN' : 'TRAFFIC TWIN'} <span>/</span> URBAN GRID <span>/</span> M2 STREAM</div><div className="updated">{traffic.lastReceivedAt ? `Updated ${new Date(traffic.lastReceivedAt).toLocaleTimeString()}` : 'Awaiting backend data'} <button onClick={() => setResetSignal((signal) => signal + 1)} title="Reset camera">⌗</button></div></header>
         <div className="scene-wrap">
           {viewMode === 'building' && <div className="style-toggle" aria-label="Building render style"><button className={buildingStyle === 'solid' ? 'active' : ''} onClick={() => setBuildingStyle('solid')}>Solid</button><button className={buildingStyle === 'wireframe' ? 'active' : ''} onClick={() => setBuildingStyle('wireframe')}>Wireframe</button></div>}
           <DigitalTwinScene network={urbanGridTopology} trafficByIntersection={renderTraffic} viewMode={viewMode} buildingStyle={buildingStyle} selectedJunctionId={selectedJunctionId} followedVehicleId={null} onSelectJunction={setSelectedJunctionId} resetSignal={resetSignal} />

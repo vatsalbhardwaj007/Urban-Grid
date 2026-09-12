@@ -1,13 +1,13 @@
 import { backendConfig } from '../config/backend'
 import type { ControlCycleResult, ControlLoopStatus, HealthResponse, TrafficSnapshot } from '../types/traffic'
-import { isTrafficSnapshot } from '../types/traffic'
+import { isControlMode, isTrafficSnapshot } from '../types/traffic'
 
 export class BackendRequestError extends Error {
   readonly status: number | undefined
   constructor(message: string, status?: number) { super(message); this.name = 'BackendRequestError'; this.status = status }
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 const isNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 
 function errorDetail(value: unknown) {
@@ -28,8 +28,8 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
 }
 
 const isHealthResponse = (value: unknown): value is HealthResponse => isRecord(value) && value.status === 'ok' && typeof value.simulation_connected === 'boolean' && (value.simulation_time === null || isNumber(value.simulation_time))
-const isControlLoopStatus = (value: unknown): value is ControlLoopStatus => isRecord(value) && typeof value.is_running === 'boolean' && isNumber(value.current_cycle) && isNumber(value.step_interval) && isNumber(value.cycle_delay) && typeof value.error_policy === 'string' && typeof value.decision_engine === 'string'
-const isControlCycleResult = (value: unknown): value is ControlCycleResult => isRecord(value) && isNumber(value.cycle) && isNumber(value.simulation_time) && isTrafficSnapshot(value.states) && isNumber(value.actions_attempted) && Array.isArray(value.action_results) && value.action_results.every(isRecord) && Array.isArray(value.errors) && value.errors.every((error) => typeof error === 'string') && typeof value.success === 'boolean'
+const isControlLoopStatus = (value: unknown): value is ControlLoopStatus => isRecord(value) && isControlMode(value.mode) && typeof value.is_running === 'boolean' && isNumber(value.current_cycle) && isNumber(value.step_interval) && isNumber(value.cycle_delay) && typeof value.error_policy === 'string' && typeof value.decision_engine === 'string'
+const isControlCycleResult = (value: unknown): value is ControlCycleResult => isRecord(value) && isNumber(value.cycle) && isNumber(value.simulation_time) && isControlMode(value.mode) && isTrafficSnapshot(value.states) && isNumber(value.actions_attempted) && Array.isArray(value.action_results) && value.action_results.every(isRecord) && Array.isArray(value.errors) && value.errors.every((error) => typeof error === 'string') && typeof value.success === 'boolean'
 
 export async function getHealth() { const data = await request('/health'); if (!isHealthResponse(data)) throw new BackendRequestError('Unexpected /health response.'); return data }
 export async function getIntersections() { const data = await request('/api/intersections'); if (!Array.isArray(data) || !data.every((id) => typeof id === 'string')) throw new BackendRequestError('Unexpected /api/intersections response.'); return data }
