@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<edges xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/edges_file.xsd">
+    <!-- Internal Horizontal Edges (2 lanes, 50 km/h = 13.89 m/s) -->
+    <edge id="E_I1_I2" from="I1" to="I2" priority="2" numLanes="2" speed="13.89"/>
+    <edge id="E_I2_I1" from="I2" to="I1" priority="2" numLanes="2" speed="13.89"/>
+    <edge id="E_I3_I4" from="I3" to="I4" priority="2" numLanes="2" speed="13.89"/>
+    <edge id="E_I4_I3" from="I4" to="I3" priority="2" numLanes="2" speed="13.89"/>
+
+    <!-- Internal Vertical Edges (2 lanes, 50 km/h = 13.89 m/s) -->
+    <edge id="E_I1_I3" from="I1" to="I3" priority="2" numLanes="2" speed="13.89"/>
+    <edge id="E_I3_I1" from="I3" to="I1" priority="2" numLanes="2" speed="13.89"/>
+    <edge id="E_I2_I4" from="I2" to="I4" priority="2" numLanes="2" speed="13.89"/>
+    <edge id="E_I4_I2" from="I4" to="I2" priority="2" numLanes="2" speed="13.89"/>
+
+    <!-- External Approaches to/from I1 -->
+    <edge id="E_W1_I1" from="J_W1" to="I1" priority="2" numLanes="2" speed="13.89"/>
+    <edge id="E_I1_W1" from="I1" to="J_W1" priority="2" numLanes="2" speed="13.89"/>
+    <edge id="E_N1_I1" from="J_N1" to="I1" priority="2" numLanes="2" speed="13.89"/>
+    <edge id="E_I1_N1" from="I1" to="J_N1" priority="2" numLanes="2" speed="13.89"/>
+
+    <!-- External Approaches to/from I2 -->
+    <edge id="E_N2_I2" from="J_N2" to="I2" priority="2" numLanes="2" speed="13.89"/>
+    <edge id="E_I2_N2" from="I2" to="J_N2" priority="2" numLanes="2" speed="13.89"/>
+    <edge id="E_I2_E2" from="I2" to="J_E2" priority="2" numLanes="2" speed="13.89"/>
+    <edge id="E_E2_I2" from="J_E2" to="I2" priority="2" numLanes="2" speed="13.89"/>
+
+    <!-- External Approaches to/from I3 -->
+    <edge id="E_W3_I3" from="J_W3" to="I3" priority="2" numLanes="2" speed="13.89"/>
+    <edge id="E_I3_W3" from="I3" to="J_W3" priority="2" numLanes="2" speed="13.89"/>
+    <edge id="E_S3_I3" from="J_S3" to="I3" priority="2" numLanes="2" speed="13.89"/>
+    <edge id="E_I3_S3" from="I3" to="J_S3" priority="2" numLanes="2" speed="13.89"/>
+
+    <!-- External Approaches to/from I4 -->
+    <edge id="E_S4_I4" from="J_S4" to="I4" priority="2" numLanes="2" speed="13.89"/>
+    <edge id="E_I4_S4" from="I4" to="J_S4" priority="2" numLanes="2" speed="13.89"/>
+    <edge id="E_I4_E4" from="I4" to="J_E4" priority="2" numLanes="2" speed="13.89"/>
+    <edge id="E_E4_I4" from="J_E4" to="I4" priority="2" numLanes="2" speed="13.89"/>
+</edges>

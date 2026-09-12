@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">
+    <!-- Vehicle Types (sigma=0.0 ensures 100% deterministic simulation) -->
+    <vType id="standard_car" accel="2.6" decel="4.5" sigma="0.0" length="5.0" minGap="2.5" maxSpeed="13.89" color="0.2,0.6,1.0"/>
+    <vType id="congested_car" accel="2.6" decel="4.5" sigma="0.0" length="5.0" minGap="2.5" maxSpeed="13.89" color="1.0,0.25,0.25"/>
+    <vType id="alternate_car" accel="2.6" decel="4.5" sigma="0.0" length="5.0" minGap="2.5" maxSpeed="13.89" color="0.25,0.9,0.3"/>
+
+    <!-- Key Routing Corridors -->
+    <!-- PRIMARY: via I1 -> I2 -> I4 -->
+    <route id="route_primary" edges="E_W1_I1 E_I1_I2 E_I2_I4 E_I4_E4"/>
+
+    <!-- ALTERNATE: via I1 -> I3 -> I4 (For load redistribution) -->
+    <route id="route_alternate" edges="E_W1_I1 E_I1_I3 E_I3_I4 E_I4_E4"/>
+
+    <!-- Cross-Traffic & Network Feeding Routes -->
+    <route id="route_N2_I2_S4" edges="E_N2_I2 E_I2_I4 E_I4_S4"/>
+    <route id="route_E2_I2_W1" edges="E_E2_I2 E_I2_I1 E_I1_W1"/>
+    <route id="route_N1_I1_S3" edges="E_N1_I1 E_I1_I3 E_I3_S3"/>
+    <route id="route_W3_I3_E4" edges="E_W3_I3 E_I3_I4 E_I4_E4"/>
+    <route id="route_S3_I3_N1" edges="E_S3_I3 E_I3_I1 E_I1_N1"/>
+    <route id="route_S4_I4_N2" edges="E_S4_I4 E_I4_I2 E_I2_N2"/>
+
+    <!-- =================================================================== -->
+    <!-- SCENARIO A: NORMAL TRAFFIC DEMAND (0s to 300s)                      -->
+    <!-- Moderate, well-distributed flow across all intersections.            -->
+    <!-- Queues clear reliably every cycle; free-flow speeds prevail.       -->
+    <!-- =================================================================== -->
+    <flow id="flow_norm_prim" route="route_primary" type="standard_car" begin="0" end="300" period="12.0"/>
+    <flow id="flow_norm_alt" route="route_alternate" type="standard_car" begin="0" end="300" period="20.0"/>
+    <flow id="flow_norm_n2_s4" route="route_N2_I2_S4" type="standard_car" begin="0" end="300" period="15.0"/>
+    <flow id="flow_norm_e2_w1" route="route_E2_I2_W1" type="standard_car" begin="0" end="300" period="18.0"/>
+    <flow id="flow_norm_n1_s3" route="route_N1_I1_S3" type="standard_car" begin="0" end="300" period="16.0"/>
+    <flow id="flow_norm_w3_e4" route="route_W3_I3_E4" type="standard_car" begin="0" end="300" period="18.0"/>
+    <flow id="flow_norm_s3_n1" route="route_S3_I3_N1" type="standard_car" begin="0" end="300" period="20.0"/>
+    <flow id="flow_norm_s4_n2" route="route_S4_I4_N2" type="standard_car" begin="0" end="300" period="20.0"/>
+
+    <!-- =================================================================== -->
+    <!-- SCENARIO B: CONGESTION HOTSPOT AT I2 (300s to 900s)                 -->
+    <!-- Heavy surge concentrated toward I2 from West, North, and East.       -->
+    <!-- Inflow severely exceeds I2 discharge capacity during green splits.  -->
+    <!-- Results in:                                                         -->
+    <!-- - Spilling queues on E_I1_I2 and E_N2_I2                            -->
+    <!-- - Rising vehicle count and density                                  -->
+    <!-- - Mean speed collapsing toward 0 m/s at I2                          -->
+    <!-- - Alternate corridor (via I3) remains free-flowing                  -->
+    <!-- =================================================================== -->
+    <!-- Surging upper corridor traffic into I2 (every 3.0s = 1200 veh/hr) -->
+    <flow id="flow_cong_prim" route="route_primary" type="congested_car" begin="300" end="900" period="3.0"/>
+    <!-- Surging North approach traffic into I2 (every 4.0s = 900 veh/hr) -->
+    <flow id="flow_cong_n2_s4" route="route_N2_I2_S4" type="congested_car" begin="300" end="900" period="4.0"/>
+    <!-- Surging East approach traffic into I2 (every 5.0s = 720 veh/hr) -->
+    <flow id="flow_cong_e2_w1" route="route_E2_I2_W1" type="congested_car" begin="300" end="900" period="5.0"/>
+    <!-- Alternate route kept deliberately light to preserve capacity for intervention -->
+    <flow id="flow_cong_alt" route="route_alternate" type="standard_car" begin="300" end="900" period="25.0"/>
+    <!-- Moderate background traffic on remaining network legs -->
+    <flow id="flow_cong_n1_s3" route="route_N1_I1_S3" type="standard_car" begin="300" end="900" period="16.0"/>
+    <flow id="flow_cong_w3_e4" route="route_W3_I3_E4" type="standard_car" begin="300" end="900" period="20.0"/>
+    <flow id="flow_cong_s3_n1" route="route_S3_I3_N1" type="standard_car" begin="300" end="900" period="22.0"/>
+    <flow id="flow_cong_s4_n2" route="route_S4_I4_N2" type="standard_car" begin="300" end="900" period="22.0"/>
+
+    <!-- =================================================================== -->
+    <!-- SCENARIO C: INTERVENTION-READY DEMAND (900s to 1500s)               -->
+    <!-- Identical heavy arrival demand as Scenario B.                       -->
+    <!-- Fully primed for downstream AI intervention:                         -->
+    <!-- 1. Route redistribution: Diverting westbound traffic to alternate   -->
+    <!-- 2. Signal timing intervention: Extending I2 green phases            -->
+    <!-- (No AI logic is executed here; this sets the canonical benchmark)   -->
+    <!-- =================================================================== -->
+    <flow id="flow_interv_prim" route="route_primary" type="congested_car" begin="900" end="1500" period="3.0"/>
+    <flow id="flow_interv_n2_s4" route="route_N2_I2_S4" type="congested_car" begin="900" end="1500" period="4.0"/>
+    <flow id="flow_interv_e2_w1" route="route_E2_I2_W1" type="congested_car" begin="900" end="1500" period="5.0"/>
+    <flow id="flow_interv_alt" route="route_alternate" type="alternate_car" begin="900" end="1500" period="25.0"/>
+    <flow id="flow_interv_n1_s3" route="route_N1_I1_S3" type="standard_car" begin="900" end="1500" period="16.0"/>
+    <flow id="flow_interv_w3_e4" route="route_W3_I3_E4" type="standard_car" begin="900" end="1500" period="20.0"/>
+    <flow id="flow_interv_s3_n1" route="route_S3_I3_N1" type="standard_car" begin="900" end="1500" period="22.0"/>
+    <flow id="flow_interv_s4_n2" route="route_S4_I4_N2" type="standard_car" begin="900" end="1500" period="22.0"/>
+</routes>
