@@ -27,6 +27,13 @@ from analytics.adapters.traffic_state_adapter import (
     extract_run_metrics,
 )
 
+from analytics.services import (
+    AnalyticsService,
+    analyze_run,
+    analyze_snapshot,
+    compare_analytics_runs,
+)
+
 __all__ = [
     "average_delay",
     "average_queue_length",
@@ -43,4 +50,8 @@ __all__ = [
     "extract_intersection_snapshot",
     "extract_lane_metrics",
     "extract_run_metrics",
+    "AnalyticsService",
+    "analyze_run",
+    "analyze_snapshot",
+    "compare_analytics_runs",
 ]
