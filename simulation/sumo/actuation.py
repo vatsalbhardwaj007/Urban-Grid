@@ -160,85 +160,86 @@ class SignalActuator:
         if not self._bridge.is_connected:
             raise SimulationDisconnectedError("Cannot actuate traffic signal: SUMO is not connected.")
 
-        conn = self._bridge.raw_connection
+        with self._bridge.lock:
+            conn = self._bridge.raw_connection
 
-        # 1. Validate target traffic light exists
-        try:
-            valid_tls = set(conn.trafficlight.getIDList())
-        except Exception as exc:
-            raise SignalActuationError(f"Failed to query traffic lights from TraCI: {exc}") from exc
+            # 1. Validate target traffic light exists
+            try:
+                valid_tls = set(conn.trafficlight.getIDList())
+            except Exception as exc:
+                raise SignalActuationError(f"Failed to query traffic lights from TraCI: {exc}") from exc
 
-        if action.target not in valid_tls:
-            raise UnknownTrafficLightError(
-                f"Traffic light target '{action.target}' is unknown. Valid targets: {sorted(valid_tls)}"
+            if action.target not in valid_tls:
+                raise UnknownTrafficLightError(
+                    f"Traffic light target '{action.target}' is unknown. Valid targets: {sorted(valid_tls)}"
+                )
+
+            # 2. Validate green_duration against sensible SUMO/control constraints
+            if action.green_duration < self._min_green or action.green_duration > self._max_green:
+                raise InvalidSignalDurationError(
+                    f"green_duration {action.green_duration}s is invalid. "
+                    f"Must be between {self._min_green}s and {self._max_green}s."
+                )
+
+            # 3. Determine current signal phase/state
+            try:
+                current_phase_idx = conn.trafficlight.getPhase(action.target)
+                current_phase_name = conn.trafficlight.getPhaseName(action.target)
+                current_state_str = conn.trafficlight.getRedYellowGreenState(action.target)
+                logics = conn.trafficlight.getAllProgramLogics(action.target)
+            except Exception as exc:
+                raise SignalActuationError(
+                    f"Failed to inspect phase for traffic light '{action.target}': {exc}"
+                ) from exc
+
+            if not logics:
+                raise SignalActuationError(f"No program logics found for traffic light '{action.target}'.")
+
+            logic = logics[0]
+            is_green = "GREEN" in current_phase_name.upper() or "G" in current_state_str or "g" in current_state_str
+
+            # 4. Apply requested green duration through TraCI
+            try:
+                if is_green:
+                    # Active phase is GREEN: update logic program definition and active remaining phase duration
+                    logic.phases[current_phase_idx].duration = float(action.green_duration)
+                    conn.trafficlight.setProgramLogic(action.target, logic)
+                    conn.trafficlight.setPhaseDuration(action.target, float(action.green_duration))
+                    applied_to = "active_green"
+                else:
+                    # Active phase is YELLOW (clearance): preserve yellow safety clearance,
+                    # find and update the upcoming green phase in the logic definition.
+                    target_green_idx = None
+                    for offset in range(1, len(logic.phases) + 1):
+                        cand_idx = (current_phase_idx + offset) % len(logic.phases)
+                        cand_phase = logic.phases[cand_idx]
+                        if "GREEN" in cand_phase.name.upper() or "G" in cand_phase.state or "g" in cand_phase.state:
+                            target_green_idx = cand_idx
+                            break
+
+                    if target_green_idx is None:
+                        target_green_idx = (current_phase_idx + 1) % len(logic.phases)
+
+                    logic.phases[target_green_idx].duration = float(action.green_duration)
+                    conn.trafficlight.setProgramLogic(action.target, logic)
+                    applied_to = "upcoming_green"
+            except Exception as exc:
+                raise SignalActuationError(
+                    f"TraCI failed to apply green duration to '{action.target}': {exc}"
+                ) from exc
+
+            return SignalActuationResult(
+                success=True,
+                target=action.target,
+                applied_duration=action.green_duration,
+                current_phase=current_phase_name,
+                applied_to=applied_to,
+                source=action.source,
+                message=(
+                    f"Successfully applied {action.green_duration}s green to "
+                    f"{action.target} ({applied_to}, phase={current_phase_name})."
+                ),
             )
-
-        # 2. Validate green_duration against sensible SUMO/control constraints
-        if action.green_duration < self._min_green or action.green_duration > self._max_green:
-            raise InvalidSignalDurationError(
-                f"green_duration {action.green_duration}s is invalid. "
-                f"Must be between {self._min_green}s and {self._max_green}s."
-            )
-
-        # 3. Determine current signal phase/state
-        try:
-            current_phase_idx = conn.trafficlight.getPhase(action.target)
-            current_phase_name = conn.trafficlight.getPhaseName(action.target)
-            current_state_str = conn.trafficlight.getRedYellowGreenState(action.target)
-            logics = conn.trafficlight.getAllProgramLogics(action.target)
-        except Exception as exc:
-            raise SignalActuationError(
-                f"Failed to inspect phase for traffic light '{action.target}': {exc}"
-            ) from exc
-
-        if not logics:
-            raise SignalActuationError(f"No program logics found for traffic light '{action.target}'.")
-
-        logic = logics[0]
-        is_green = "GREEN" in current_phase_name.upper() or "G" in current_state_str or "g" in current_state_str
-
-        # 4. Apply requested green duration through TraCI
-        try:
-            if is_green:
-                # Active phase is GREEN: update logic program definition and active remaining phase duration
-                logic.phases[current_phase_idx].duration = float(action.green_duration)
-                conn.trafficlight.setProgramLogic(action.target, logic)
-                conn.trafficlight.setPhaseDuration(action.target, float(action.green_duration))
-                applied_to = "active_green"
-            else:
-                # Active phase is YELLOW (clearance): preserve yellow safety clearance,
-                # find and update the upcoming green phase in the logic definition.
-                target_green_idx = None
-                for offset in range(1, len(logic.phases) + 1):
-                    cand_idx = (current_phase_idx + offset) % len(logic.phases)
-                    cand_phase = logic.phases[cand_idx]
-                    if "GREEN" in cand_phase.name.upper() or "G" in cand_phase.state or "g" in cand_phase.state:
-                        target_green_idx = cand_idx
-                        break
-
-                if target_green_idx is None:
-                    target_green_idx = (current_phase_idx + 1) % len(logic.phases)
-
-                logic.phases[target_green_idx].duration = float(action.green_duration)
-                conn.trafficlight.setProgramLogic(action.target, logic)
-                applied_to = "upcoming_green"
-        except Exception as exc:
-            raise SignalActuationError(
-                f"TraCI failed to apply green duration to '{action.target}': {exc}"
-            ) from exc
-
-        return SignalActuationResult(
-            success=True,
-            target=action.target,
-            applied_duration=action.green_duration,
-            current_phase=current_phase_name,
-            applied_to=applied_to,
-            source=action.source,
-            message=(
-                f"Applied green duration {action.green_duration}s to '{action.target}' "
-                f"({applied_to}: {current_phase_name})"
-            ),
-        )
 
 
 # =============================================================================
@@ -247,20 +248,28 @@ class SignalActuator:
 
 
 class RouteActuator:
-    """M2-owned actuator applying RouteAction to SUMO vehicles via TraCI."""
+    """Actuator applying RouteAction rerouting recommendations to SUMO vehicles via TraCI."""
 
     def __init__(self, bridge: TraCIBridge) -> None:
+        """Initialize RouteActuator with an active TraCIBridge."""
         self._bridge = bridge
 
     @property
     def bridge(self) -> TraCIBridge:
+        """Return the underlying TraCIBridge instance."""
         return self._bridge
 
     def apply(self, action: RouteAction) -> RouteActuationResult:
-        """Validate and apply a RouteAction reroute directive to the simulation.
+        """Apply a rerouting recommendation to a specific active vehicle.
+
+        Sequence:
+        1. Validate TraCI connection is active
+        2. Validate vehicle exists and is currently active in simulation
+        3. Validate all edge IDs in route exist in the network
+        4. Apply route via conn.vehicle.setRoute(vehicle_id, edge_list)
 
         Args:
-            action: Validated RouteAction contract.
+            action: Validated RouteAction instance.
 
         Returns:
             RouteActuationResult describing the outcome.
@@ -275,58 +284,59 @@ class RouteActuator:
         if not self._bridge.is_connected:
             raise SimulationDisconnectedError("Cannot actuate vehicle route: SUMO is not connected.")
 
-        conn = self._bridge.raw_connection
+        with self._bridge.lock:
+            conn = self._bridge.raw_connection
 
-        # 1. Validate vehicle exists and is active
-        try:
-            active_vehicles = set(conn.vehicle.getIDList())
-        except Exception as exc:
-            raise RouteActuationError(f"Failed to query vehicle list from TraCI: {exc}") from exc
+            # 1. Validate vehicle exists and is active
+            try:
+                active_vehicles = set(conn.vehicle.getIDList())
+            except Exception as exc:
+                raise RouteActuationError(f"Failed to query vehicle list from TraCI: {exc}") from exc
 
-        if action.target not in active_vehicles:
-            raise UnknownVehicleError(
-                f"Vehicle '{action.target}' is not active or does not exist in simulation."
-            )
-
-        # 2. Validate every supplied edge exists in the current SUMO network
-        try:
-            network_edges = set(conn.edge.getIDList())
-        except Exception as exc:
-            raise RouteActuationError(f"Failed to query edges from TraCI: {exc}") from exc
-
-        for edge in action.route:
-            if edge not in network_edges:
-                raise InvalidRouteEdgeError(
-                    f"Edge '{edge}' does not exist in the SUMO network."
+            if action.target not in active_vehicles:
+                raise UnknownVehicleError(
+                    f"Vehicle '{action.target}' is not active or does not exist in simulation."
                 )
 
-        # 3. Retrieve previous route for logging and result reporting
-        try:
-            previous_route = list(conn.vehicle.getRoute(action.target))
-        except Exception as exc:
-            raise RouteActuationError(
-                f"Failed to read current route for vehicle '{action.target}': {exc}"
-            ) from exc
+            # 2. Validate every supplied edge exists in the current SUMO network
+            try:
+                network_edges = set(conn.edge.getIDList())
+            except Exception as exc:
+                raise RouteActuationError(f"Failed to query edges from TraCI: {exc}") from exc
 
-        # 4. Apply route through TraCI
-        try:
-            conn.vehicle.setRoute(action.target, action.route)
-        except Exception as exc:
-            raise InvalidRouteError(
-                f"Route cannot be applied to vehicle '{action.target}': {exc}"
-            ) from exc
+            for edge in action.route:
+                if edge not in network_edges:
+                    raise InvalidRouteEdgeError(
+                        f"Edge '{edge}' does not exist in the SUMO network."
+                    )
 
-        return RouteActuationResult(
-            success=True,
-            target=action.target,
-            applied_route=list(action.route),
-            previous_route=previous_route,
-            source=action.source,
-            message=(
-                f"Successfully rerouted vehicle '{action.target}' "
-                f"from {len(previous_route)} edges to {len(action.route)} edges."
-            ),
-        )
+            # 3. Retrieve previous route for logging and result reporting
+            try:
+                previous_route = list(conn.vehicle.getRoute(action.target))
+            except Exception as exc:
+                raise RouteActuationError(
+                    f"Failed to read current route for vehicle '{action.target}': {exc}"
+                ) from exc
+
+            # 4. Apply route through TraCI
+            try:
+                conn.vehicle.setRoute(action.target, action.route)
+            except Exception as exc:
+                raise InvalidRouteError(
+                    f"Route cannot be applied to vehicle '{action.target}': {exc}"
+                ) from exc
+
+            return RouteActuationResult(
+                success=True,
+                target=action.target,
+                applied_route=list(action.route),
+                previous_route=previous_route,
+                source=action.source,
+                message=(
+                    f"Successfully rerouted vehicle '{action.target}' "
+                    f"from {len(previous_route)} edges to {len(action.route)} edges."
+                ),
+            )
 
 
 # =============================================================================

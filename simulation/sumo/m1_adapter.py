@@ -250,40 +250,41 @@ class RealM1DecisionEngine:
             return None, None
 
         try:
-            active_vehicles = self._bridge.get_vehicle_ids()
-            if not active_vehicles:
-                return None, None
+            with self._bridge.lock:
+                active_vehicles = self._bridge.get_vehicle_ids()
+                if not active_vehicles:
+                    return None, None
 
-            conn = self._bridge.raw_connection
-            # Look for an active vehicle on the primary entrance route
-            for veh_id in active_vehicles:
-                route = list(conn.vehicle.getRoute(veh_id))
-                if not route:
-                    continue
+                conn = self._bridge.raw_connection
+                # Look for an active vehicle on the primary entrance route
+                for veh_id in active_vehicles:
+                    route = list(conn.vehicle.getRoute(veh_id))
+                    if not route:
+                        continue
 
-                # If vehicle is currently on the primary route from E_W1_I1, offer alternate to E_I4_E4
-                if route[0] == "E_W1_I1" and route[-1] in ("E_I2_E2", "E_I4_E4"):
+                    # If vehicle is currently on the primary route from E_W1_I1, offer alternate to E_I4_E4
+                    if route[0] == "E_W1_I1" and route[-1] in ("E_I2_E2", "E_I4_E4"):
+                        routing_ctx = RoutingContext(
+                            planner=self._planner,
+                            source="E_W1_I1",
+                            destination="E_I4_E4",
+                            current_path=tuple(route),
+                            current_cost=30.0,
+                        )
+                        return veh_id, routing_ctx
+
+                # Fallback: pick the first active vehicle
+                sample_veh = active_vehicles[0]
+                current_route = tuple(conn.vehicle.getRoute(sample_veh))
+                if len(current_route) >= 2:
                     routing_ctx = RoutingContext(
                         planner=self._planner,
-                        source="E_W1_I1",
-                        destination="E_I4_E4",
-                        current_path=tuple(route),
-                        current_cost=30.0,
+                        source=current_route[0],
+                        destination=current_route[-1],
+                        current_path=current_route,
+                        current_cost=25.0,
                     )
-                    return veh_id, routing_ctx
-
-            # Fallback: pick the first active vehicle
-            sample_veh = active_vehicles[0]
-            current_route = tuple(conn.vehicle.getRoute(sample_veh))
-            if len(current_route) >= 2:
-                routing_ctx = RoutingContext(
-                    planner=self._planner,
-                    source=current_route[0],
-                    destination=current_route[-1],
-                    current_path=current_route,
-                    current_cost=25.0,
-                )
-                return sample_veh, routing_ctx
+                    return sample_veh, routing_ctx
 
         except Exception as exc:
             logger.debug(f"Error checking vehicles for routing candidate: {exc}")

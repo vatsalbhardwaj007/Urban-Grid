@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "urban-grid"
+version = "0.1.0"
+description = "Urban Grid: Real-time predictive traffic control and simulation platform"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.23.0",
+    "pydantic>=2.0.0",
+    "websockets>=11.0",
+    "traci>=1.18.0",
+    "sumolib>=1.18.0",
+    "networkx>=3.0",
+    "numpy>=1.24.0",
+    "xgboost>=2.0.0",
+    "scikit-learn>=1.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "httpx>=0.24.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests", "simulation/sumo/tests", "ai", "analytics/tests", "shared"]
+python_files = ["test_*.py"]
+asyncio_mode = "strict"

@@ -15,6 +15,7 @@ WORKSPACE_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKSPACE_ROOT))
 
+import asyncio
 import json
 import logging
 
@@ -26,6 +27,7 @@ from backend.api.dependencies import (
     get_action_dispatcher,
     get_control_loop,
     get_state_provider,
+    set_global_event_loop,
     start_simulation,
     stop_simulation,
 )
@@ -85,6 +87,11 @@ class StepRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application simulation lifecycle (startup and shutdown)."""
+    try:
+        loop = asyncio.get_running_loop()
+        set_global_event_loop(loop)
+    except RuntimeError:
+        pass
     try:
         start_simulation()
     except Exception as exc:
@@ -215,6 +222,7 @@ async def step_simulation(
 
     Also broadcasts canonical traffic.update events to all connected WebSocket clients.
     """
+    set_global_event_loop(asyncio.get_running_loop())
     try:
         states = provider.step_and_get_states(steps=request.steps)
         await manager.broadcast_all_states(states)
@@ -236,6 +244,7 @@ async def traffic_websocket_endpoint(
 
     SUMO -> M2 -> WebSocket -> M3/M4
     """
+    set_global_event_loop(asyncio.get_running_loop())
     await manager.connect(websocket)
     try:
         # Immediately send latest known TrafficState snapshot upon connection
