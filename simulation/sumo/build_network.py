@@ -14,6 +14,8 @@ Produces:
 """
 
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
 SUMO_DIR = Path(__file__).resolve().parent
@@ -177,145 +179,7 @@ def build_connections_con_xml() -> str:
 """
 
 
-def build_network_net_xml() -> str:
-    """Construct complete valid SUMO network XML file."""
-    # Build complete network XML with edges, lanes, junctions, connections, and tlLogic
-    xml_parts = [
-        """<?xml version="1.0" encoding="UTF-8"?>
-<net version="1.20" junctionCornerDetail="5" limitTurnSpeed="5.50" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/net_file.xsd">
-    <location netOffset="0.00,0.00" convBoundary="0.00,0.00,1000.00,1000.00" origBoundary="0.00,0.00,1000.00,1000.00" projParameter="!"/>
-"""
-    ]
 
-    # Define edges and lanes
-    # Geometry helper
-    edges_def = [
-        # id, from, to, len, l0_shape, l1_shape
-        ("E_W1_I1", "J_W1", "I1", 250.0, "0.00,745.20 250.00,745.20", "0.00,748.40 250.00,748.40"),
-        ("E_I1_W1", "I1", "J_W1", 250.0, "250.00,754.80 0.00,754.80", "250.00,751.60 0.00,751.60"),
-        ("E_I1_I2", "I1", "I2", 500.0, "250.00,745.20 750.00,745.20", "250.00,748.40 750.00,748.40"),
-        ("E_I2_I1", "I2", "I1", 500.0, "750.00,754.80 250.00,754.80", "750.00,751.60 250.00,751.60"),
-        ("E_I2_E2", "I2", "J_E2", 250.0, "750.00,745.20 1000.00,745.20", "750.00,748.40 1000.00,748.40"),
-        ("E_E2_I2", "J_E2", "I2", 250.0, "1000.00,754.80 750.00,754.80", "1000.00,751.60 750.00,751.60"),
-
-        ("E_W3_I3", "J_W3", "I3", 250.0, "0.00,245.20 250.00,245.20", "0.00,248.40 250.00,248.40"),
-        ("E_I3_W3", "I3", "J_W3", 250.0, "250.00,254.80 0.00,254.80", "250.00,251.60 0.00,251.60"),
-        ("E_I3_I4", "I3", "I4", 500.0, "250.00,245.20 750.00,245.20", "250.00,248.40 750.00,248.40"),
-        ("E_I4_I3", "I4", "I3", 500.0, "750.00,254.80 250.00,254.80", "750.00,251.60 250.00,251.60"),
-        ("E_I4_E4", "I4", "J_E4", 250.0, "750.00,245.20 1000.00,245.20", "750.00,248.40 1000.00,248.40"),
-        ("E_E4_I4", "J_E4", "I4", 250.0, "1000.00,254.80 750.00,254.80", "1000.00,251.60 750.00,251.60"),
-
-        ("E_N1_I1", "J_N1", "I1", 250.0, "245.20,1000.00 245.20,750.00", "248.40,1000.00 248.40,750.00"),
-        ("E_I1_N1", "I1", "J_N1", 250.0, "254.80,750.00 254.80,1000.00", "251.60,750.00 251.60,1000.00"),
-        ("E_I1_I3", "I1", "I3", 500.0, "245.20,750.00 245.20,250.00", "248.40,750.00 248.40,250.00"),
-        ("E_I3_I1", "I3", "I1", 500.0, "254.80,250.00 254.80,750.00", "251.60,250.00 251.60,750.00"),
-        ("E_I3_S3", "I3", "J_S3", 250.0, "245.20,250.00 245.20,0.00", "248.40,250.00 248.40,0.00"),
-        ("E_S3_I3", "J_S3", "I3", 250.0, "254.80,0.00 254.80,250.00", "251.60,0.00 251.60,250.00"),
-
-        ("E_N2_I2", "J_N2", "I2", 250.0, "745.20,1000.00 745.20,750.00", "748.40,1000.00 748.40,750.00"),
-        ("E_I2_N2", "I2", "J_N2", 250.0, "754.80,750.00 754.80,1000.00", "751.60,750.00 751.60,1000.00"),
-        ("E_I2_I4", "I2", "I4", 500.0, "745.20,750.00 745.20,250.00", "748.40,750.00 748.40,250.00"),
-        ("E_I4_I2", "I4", "I2", 500.0, "754.80,250.00 754.80,750.00", "751.60,250.00 751.60,750.00"),
-        ("E_I4_S4", "I4", "J_S4", 250.0, "745.20,250.00 745.20,0.00", "748.40,250.00 748.40,0.00"),
-        ("E_S4_I4", "J_S4", "I4", 250.0, "754.80,0.00 754.80,250.00", "751.60,0.00 751.60,250.00"),
-    ]
-
-    for eid, fr, to, length, l0, l1 in edges_def:
-        xml_parts.append(
-            f'    <edge id="{eid}" from="{fr}" to="{to}" priority="2">\n'
-            f'        <lane id="{eid}_0" index="0" speed="13.89" length="{length:.2f}" shape="{l0}"/>\n'
-            f'        <lane id="{eid}_1" index="1" speed="13.89" length="{length:.2f}" shape="{l1}"/>\n'
-            f'    </edge>\n'
-        )
-
-    # Traffic light logics in net
-    for tl_id in ["I1", "I2", "I3", "I4"]:
-        xml_parts.append(
-            f'    <tlLogic id="{tl_id}" type="static" programID="0" offset="0">\n'
-            f'        <phase duration="31" state="GGGGrrrrGGGGrrrr" name="NS_GREEN"/>\n'
-            f'        <phase duration="4"  state="yyyyrrrryyyyrrrr" name="NS_YELLOW"/>\n'
-            f'        <phase duration="31" state="rrrrGGGGrrrrGGGG" name="EW_GREEN"/>\n'
-            f'        <phase duration="4"  state="rrrryyyyrrrryyyy" name="EW_YELLOW"/>\n'
-            f'    </tlLogic>\n'
-        )
-
-    # Junctions
-    # 4 Main signalized junctions
-    signalized_juncs = [
-        ("I1", 250.0, 750.0, "E_N1_I1_0 E_N1_I1_1 E_I2_I1_0 E_I2_I1_1 E_I3_I1_0 E_I3_I1_1 E_W1_I1_0 E_W1_I1_1"),
-        ("I2", 750.0, 750.0, "E_N2_I2_0 E_N2_I2_1 E_E2_I2_0 E_E2_I2_1 E_I4_I2_0 E_I4_I2_1 E_I1_I2_0 E_I1_I2_1"),
-        ("I3", 250.0, 250.0, "E_I1_I3_0 E_I1_I3_1 E_I4_I3_0 E_I4_I3_1 E_S3_I3_0 E_S3_I3_1 E_W3_I3_0 E_W3_I3_1"),
-        ("I4", 750.0, 250.0, "E_I2_I4_0 E_I2_I4_1 E_E4_I4_0 E_E4_I4_1 E_S4_I4_0 E_S4_I4_1 E_I3_I4_0 E_I3_I4_1"),
-    ]
-    for jid, jx, jy, inc_lanes in signalized_juncs:
-        shape = f"{jx-8.0:.2f},{jy+8.0:.2f} {jx+8.0:.2f},{jy+8.0:.2f} {jx+8.0:.2f},{jy-8.0:.2f} {jx-8.0:.2f},{jy-8.0:.2f}"
-        xml_parts.append(
-            f'    <junction id="{jid}" type="traffic_light" x="{jx:.2f}" y="{jy:.2f}" incLanes="{inc_lanes}" shape="{shape}"/>\n'
-        )
-
-    # Boundary priority junctions
-    boundary_juncs = [
-        ("J_W1", 0.0, 750.0, "E_I1_W1_0 E_I1_W1_1"),
-        ("J_E2", 1000.0, 750.0, "E_I2_E2_0 E_I2_E2_1"),
-        ("J_W3", 0.0, 250.0, "E_I3_W3_0 E_I3_W3_1"),
-        ("J_E4", 1000.0, 250.0, "E_I4_E4_0 E_I4_E4_1"),
-        ("J_N1", 250.0, 1000.0, "E_I1_N1_0 E_I1_N1_1"),
-        ("J_N2", 750.0, 1000.0, "E_I2_N2_0 E_I2_N2_1"),
-        ("J_S3", 250.0, 0.0, "E_I3_S3_0 E_I3_S3_1"),
-        ("J_S4", 750.0, 0.0, "E_I4_S4_0 E_I4_S4_1"),
-    ]
-    for jid, jx, jy, inc_lanes in boundary_juncs:
-        xml_parts.append(
-            f'    <junction id="{jid}" type="priority" x="{jx:.2f}" y="{jy:.2f}" incLanes="{inc_lanes}"/>\n'
-        )
-
-    # Connections with traffic light link indices (16 links per intersection)
-    # Helper to generate standard 4-way connections for an intersection
-    def intersection_connections(tl_id, north_in, east_in, south_in, west_in, north_out, east_out, south_out, west_out):
-        conns = []
-        # North approach (links 0..3)
-        conns.append((north_in, west_out, 0, 0, "r", 0))
-        conns.append((north_in, south_out, 0, 0, "s", 1))
-        conns.append((north_in, south_out, 1, 1, "s", 2))
-        conns.append((north_in, east_out, 1, 1, "l", 3))
-        # East approach (links 4..7)
-        conns.append((east_in, north_out, 0, 0, "r", 4))
-        conns.append((east_in, west_out, 0, 0, "s", 5))
-        conns.append((east_in, west_out, 1, 1, "s", 6))
-        conns.append((east_in, south_out, 1, 1, "l", 7))
-        # South approach (links 8..11)
-        conns.append((south_in, east_out, 0, 0, "r", 8))
-        conns.append((south_in, north_out, 0, 0, "s", 9))
-        conns.append((south_in, north_out, 1, 1, "s", 10))
-        conns.append((south_in, west_out, 1, 1, "l", 11))
-        # West approach (links 12..15)
-        conns.append((west_in, south_out, 0, 0, "r", 12))
-        conns.append((west_in, east_out, 0, 0, "s", 13))
-        conns.append((west_in, east_out, 1, 1, "s", 14))
-        conns.append((west_in, north_out, 1, 1, "l", 15))
-
-        lines = []
-        for fr, to, fr_l, to_l, d, idx in conns:
-            lines.append(
-                f'    <connection from="{fr}" to="{to}" fromLane="{fr_l}" toLane="{to_l}" tl="{tl_id}" linkIndex="{idx}" dir="{d}" state="o"/>'
-            )
-        return "\n".join(lines)
-
-    # I1 connections
-    xml_parts.append(intersection_connections("I1", "E_N1_I1", "E_I2_I1", "E_I3_I1", "E_W1_I1", "E_I1_N1", "E_I1_I2", "E_I1_I3", "E_I1_W1"))
-    xml_parts.append("\n")
-    # I2 connections
-    xml_parts.append(intersection_connections("I2", "E_N2_I2", "E_E2_I2", "E_I4_I2", "E_I1_I2", "E_I2_N2", "E_I2_E2", "E_I2_I4", "E_I2_I1"))
-    xml_parts.append("\n")
-    # I3 connections
-    xml_parts.append(intersection_connections("I3", "E_I1_I3", "E_I4_I3", "E_S3_I3", "E_W3_I3", "E_I3_I1", "E_I3_I4", "E_I3_S3", "E_I3_W3"))
-    xml_parts.append("\n")
-    # I4 connections
-    xml_parts.append(intersection_connections("I4", "E_I2_I4", "E_E4_I4", "E_S4_I4", "E_I3_I4", "E_I4_I2", "E_I4_E4", "E_I4_S4", "E_I4_I3"))
-    xml_parts.append("\n")
-
-    xml_parts.append("</net>\n")
-    return "".join(xml_parts)
 
 
 def build_traffic_lights_add_xml() -> str:
@@ -331,33 +195,33 @@ def build_traffic_lights_add_xml() -> str:
 
     <!-- Intersection I1 (Northwest) -->
     <tlLogic id="I1" type="static" programID="0" offset="0">
-        <phase duration="31" state="GGGGrrrrGGGGrrrr" name="NS_GREEN"/>
+        <phase duration="31" state="GGGgrrrrGGGgrrrr" name="NS_GREEN"/>
         <phase duration="4"  state="yyyyrrrryyyyrrrr" name="NS_YELLOW"/>
-        <phase duration="31" state="rrrrGGGGrrrrGGGG" name="EW_GREEN"/>
+        <phase duration="31" state="rrrrGGGgrrrrGGGg" name="EW_GREEN"/>
         <phase duration="4"  state="rrrryyyyrrrryyyy" name="EW_YELLOW"/>
     </tlLogic>
 
     <!-- Intersection I2 (Northeast - Bottleneck hotspot in Scenario B) -->
     <tlLogic id="I2" type="static" programID="0" offset="0">
-        <phase duration="31" state="GGGGrrrrGGGGrrrr" name="NS_GREEN"/>
+        <phase duration="31" state="GGGgrrrrGGGgrrrr" name="NS_GREEN"/>
         <phase duration="4"  state="yyyyrrrryyyyrrrr" name="NS_YELLOW"/>
-        <phase duration="31" state="rrrrGGGGrrrrGGGG" name="EW_GREEN"/>
+        <phase duration="31" state="rrrrGGGgrrrrGGGg" name="EW_GREEN"/>
         <phase duration="4"  state="rrrryyyyrrrryyyy" name="EW_YELLOW"/>
     </tlLogic>
 
     <!-- Intersection I3 (Southwest - Alternate corridor route) -->
     <tlLogic id="I3" type="static" programID="0" offset="0">
-        <phase duration="31" state="GGGGrrrrGGGGrrrr" name="NS_GREEN"/>
+        <phase duration="31" state="GGGgrrrrGGGgrrrr" name="NS_GREEN"/>
         <phase duration="4"  state="yyyyrrrryyyyrrrr" name="NS_YELLOW"/>
-        <phase duration="31" state="rrrrGGGGrrrrGGGG" name="EW_GREEN"/>
+        <phase duration="31" state="rrrrGGGgrrrrGGGg" name="EW_GREEN"/>
         <phase duration="4"  state="rrrryyyyrrrryyyy" name="EW_YELLOW"/>
     </tlLogic>
 
     <!-- Intersection I4 (Southeast) -->
     <tlLogic id="I4" type="static" programID="0" offset="0">
-        <phase duration="31" state="GGGGrrrrGGGGrrrr" name="NS_GREEN"/>
+        <phase duration="31" state="GGGgrrrrGGGgrrrr" name="NS_GREEN"/>
         <phase duration="4"  state="yyyyrrrryyyyrrrr" name="NS_YELLOW"/>
-        <phase duration="31" state="rrrrGGGGrrrrGGGG" name="EW_GREEN"/>
+        <phase duration="31" state="rrrrGGGgrrrrGGGg" name="EW_GREEN"/>
         <phase duration="4"  state="rrrryyyyrrrryyyy" name="EW_YELLOW"/>
     </tlLogic>
 </additional>
@@ -503,7 +367,6 @@ def build_urban_grid_sumocfg() -> str:
     <input>
         <net-file value="network.net.xml"/>
         <route-files value="routes.rou.xml"/>
-        <additional-files value="traffic_lights.add.xml"/>
     </input>
     <time>
         <begin value="0"/>
@@ -530,13 +393,33 @@ def build_viewsettings_xml() -> str:
     return """<?xml version="1.0" encoding="UTF-8"?>
 <viewsettings xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/viewsettings_file.xsd">
     <viewport zoom="120" x="500.00" y="500.00"/>
-    <scheme name="standard">
-        <edges colorScheme="uniform" laneEdgeColor="1" laneShowBorders="1"/>
-        <vehicles colorScheme="given vehicle color" vehicleSize="1"/>
-        <junctions showLane2Lane="1"/>
-    </scheme>
+    <scheme name="standard"/>
 </viewsettings>
 """
+
+
+def compile_network() -> bool:
+    """Compile network.net.xml from plain XML inputs using netconvert."""
+    netconvert_bin = shutil.which("netconvert") or shutil.which("netconvert.exe")
+    if not netconvert_bin:
+        print("WARNING: netconvert executable not found in PATH.")
+        return False
+    cmd = [
+        netconvert_bin,
+        f"--node-files={SUMO_DIR / 'nodes.nod.xml'}",
+        f"--edge-files={SUMO_DIR / 'edges.edg.xml'}",
+        f"--connection-files={SUMO_DIR / 'connections.con.xml'}",
+        f"--tllogic-files={SUMO_DIR / 'traffic_lights.add.xml'}",
+        f"--output-file={SUMO_DIR / 'network.net.xml'}",
+        "--no-internal-links",
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode == 0:
+        print("Generated: network.net.xml (compiled via netconvert)")
+        return True
+    else:
+        print(f"ERROR: netconvert failed (exit {res.returncode}):\n{res.stderr}")
+        return False
 
 
 def main():
@@ -544,7 +427,6 @@ def main():
         "nodes.nod.xml": build_nodes_nod_xml(),
         "edges.edg.xml": build_edges_edg_xml(),
         "connections.con.xml": build_connections_con_xml(),
-        "network.net.xml": build_network_net_xml(),
         "traffic_lights.add.xml": build_traffic_lights_add_xml(),
         "routes.rou.xml": build_routes_rou_xml(),
         "routes_normal.rou.xml": build_routes_scenario_xml("normal"),
@@ -559,6 +441,8 @@ def main():
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(content)
         print(f"Generated: {filepath.name} ({len(content)} bytes)")
+
+    compile_network()
 
 
 if __name__ == "__main__":
