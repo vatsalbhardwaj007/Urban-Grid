@@ -30,6 +30,11 @@ from backend.api.dependencies import (
     stop_simulation,
 )
 from backend.api.websocket import ConnectionManager, get_connection_manager
+from shared.schemas.control_mode import (
+    ControlMode,
+    ControlModeResponse,
+    SetControlModeRequest,
+)
 from shared.schemas.route_action import RouteAction
 from shared.schemas.signal_action import SignalAction
 from shared.schemas.traffic_state import TrafficState
@@ -39,6 +44,7 @@ from simulation.sumo.actuation import (
     InvalidRouteEdgeError,
     InvalidRouteError,
     InvalidSignalDurationError,
+    ModeRestrictedActionError,
     RouteActuationResult,
     SignalActuationResult,
     SimulationDisconnectedError,
@@ -46,6 +52,7 @@ from simulation.sumo.actuation import (
     UnknownVehicleError,
 )
 from simulation.sumo.control_loop import ControlCycleResult, SimulationControlLoop
+
 from simulation.sumo.state_provider import TrafficStateProvider
 from simulation.sumo.traci_bridge import TraCIBridgeError
 
@@ -281,6 +288,11 @@ def control_signal(
     """Validate and actuate a traffic signal timing recommendation from M1."""
     try:
         return dispatcher.apply_signal(action)
+    except ModeRestrictedActionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
     except (UnknownTrafficLightError, InvalidSignalDurationError) as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -311,6 +323,11 @@ def control_route(
     """Validate and actuate a vehicle rerouting directive from M1."""
     try:
         return dispatcher.apply_route(action)
+    except ModeRestrictedActionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
     except (UnknownVehicleError, InvalidRouteEdgeError, InvalidRouteError) as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -328,9 +345,64 @@ def control_route(
         ) from exc
 
 
+@app.get(
+    "/api/control/mode",
+    response_model=ControlModeResponse,
+    summary="Get current system control mode",
+    tags=["Control Mode"],
+)
+def get_control_mode(
+    control_loop: SimulationControlLoop = Depends(get_control_loop),
+) -> ControlModeResponse:
+    """Return the current operating control mode (AUTO, MANUAL, EMERGENCY)."""
+    mode = control_loop.mode
+    descriptions = {
+        ControlMode.AUTO: "Automated closed-loop AI control. M1 predictions and decisions automatically actuate SUMO.",
+        ControlMode.MANUAL: "Manual operator control. M1 actions are suppressed from automated actuation.",
+        ControlMode.EMERGENCY: "Emergency corridor priority mode. AI control is overridden by emergency policy.",
+    }
+    return ControlModeResponse(
+        mode=mode,
+        description=descriptions.get(mode, ""),
+        previous_mode=control_loop.previous_mode,
+    )
+
+
+@app.post(
+    "/api/control/mode",
+    response_model=ControlModeResponse,
+    summary="Set system control mode",
+    tags=["Control Mode"],
+)
+def set_control_mode(
+    request: SetControlModeRequest,
+    control_loop: SimulationControlLoop = Depends(get_control_loop),
+) -> ControlModeResponse:
+    """Transition system control mode safely (AUTO, MANUAL, EMERGENCY)."""
+    try:
+        new_mode, prev_mode = control_loop.set_mode(request.mode)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    descriptions = {
+        ControlMode.AUTO: "Automated closed-loop AI control. M1 predictions and decisions automatically actuate SUMO.",
+        ControlMode.MANUAL: "Manual operator control. M1 actions are suppressed from automated actuation.",
+        ControlMode.EMERGENCY: "Emergency corridor priority mode. AI control is overridden by emergency policy.",
+    }
+    return ControlModeResponse(
+        mode=new_mode,
+        description=descriptions.get(new_mode, ""),
+        previous_mode=prev_mode,
+    )
+
+
 class ControlLoopStatusResponse(BaseModel):
     """Response model reporting current simulation control loop status."""
 
+    mode: ControlMode = Field(default=ControlMode.AUTO, description="Active system control mode.")
     is_running: bool = Field(description="Whether the control loop is currently running.")
     current_cycle: int = Field(description="Total cycles executed so far.")
     step_interval: int = Field(description="Simulation steps per control cycle.")
@@ -350,6 +422,7 @@ def get_control_loop_status(
 ) -> ControlLoopStatusResponse:
     """Return live status of the closed-loop orchestrator."""
     return ControlLoopStatusResponse(
+        mode=control_loop.mode,
         is_running=control_loop.is_running,
         current_cycle=control_loop.current_cycle,
         step_interval=control_loop.step_interval,
@@ -381,5 +454,6 @@ def execute_control_loop_cycle(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Control loop cycle failed: {exc}",
         ) from exc
+
 
 

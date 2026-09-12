@@ -19,6 +19,7 @@ if str(WORKSPACE_ROOT) not in sys.path:
 
 from pydantic import BaseModel, Field
 
+from shared.schemas.control_mode import ControlMode
 from shared.schemas.route_action import RouteAction
 from shared.schemas.signal_action import ActionSource, SignalAction
 from simulation.sumo.traci_bridge import TraCIBridge, TraCIBridgeError
@@ -32,6 +33,12 @@ from simulation.sumo.traci_bridge import TraCIBridge, TraCIBridgeError
 class ActuationError(Exception):
     """Base exception for all simulation actuation failures."""
     pass
+
+
+class ModeRestrictedActionError(ActuationError):
+    """Raised when an action source is restricted under the active ControlMode."""
+    pass
+
 
 
 class SimulationDisconnectedError(ActuationError):
@@ -339,10 +346,24 @@ class ActionDispatcher:
         bridge: TraCIBridge,
         signal_actuator: SignalActuator | None = None,
         route_actuator: RouteActuator | None = None,
+        mode: ControlMode = ControlMode.AUTO,
     ) -> None:
         self._bridge = bridge
         self._signal_actuator = signal_actuator or SignalActuator(bridge)
         self._route_actuator = route_actuator or RouteActuator(bridge)
+        self._mode: ControlMode = mode
+
+    @property
+    def mode(self) -> ControlMode:
+        """Return the current control mode governing dispatch enforcement."""
+        return self._mode
+
+    @mode.setter
+    def mode(self, new_mode: ControlMode) -> None:
+        """Set the control mode for dispatch enforcement."""
+        if not isinstance(new_mode, ControlMode):
+            raise ValueError(f"Invalid control mode '{new_mode}'. Must be an instance of ControlMode.")
+        self._mode = new_mode
 
     @property
     def signal_actuator(self) -> SignalActuator:
@@ -354,12 +375,27 @@ class ActionDispatcher:
         """Return the managed RouteActuator instance."""
         return self._route_actuator
 
+    def _check_mode_permission(self, action: SignalAction | RouteAction) -> None:
+        """Verify whether the action source is permitted under current control mode."""
+        if self._mode == ControlMode.MANUAL:
+            if action.source == ActionSource.AI:
+                raise ModeRestrictedActionError(
+                    f"Action from source '{action.source.value}' is restricted in MANUAL mode."
+                )
+        elif self._mode == ControlMode.EMERGENCY:
+            if action.source == ActionSource.AI:
+                raise ModeRestrictedActionError(
+                    f"AI action from source '{action.source.value}' cannot override EMERGENCY mode."
+                )
+
     def apply_signal(self, action: SignalAction) -> SignalActuationResult:
         """Direct entry point for SignalAction."""
+        self._check_mode_permission(action)
         return self._signal_actuator.apply(action)
 
     def apply_route(self, action: RouteAction) -> RouteActuationResult:
         """Direct entry point for RouteAction."""
+        self._check_mode_permission(action)
         return self._route_actuator.apply(action)
 
     def dispatch(
@@ -386,3 +422,4 @@ class ActionDispatcher:
                 f"Unsupported action type '{type(action).__name__}'. "
                 f"Expected SignalAction or RouteAction."
             )
+
