@@ -184,3 +184,28 @@ class TestTrafficWebSocketStream:
         res_step = client.post("/api/simulation/step", json={"steps": 1})
         assert res_step.status_code == 200
         assert set(res_step.json().keys()) == {"I1", "I2", "I3", "I4"}
+
+    @REQUIRES_SUMO
+    def test_control_loop_step_broadcasts_to_websocket(self, client: TestClient) -> None:
+        """11. Calling POST /api/control/loop/step broadcasts traffic.update to connected WebSocket clients."""
+        with client.websocket_connect("/ws/traffic") as ws:
+            # Drain initial 4 snapshots
+            initial_states = [ws.receive_json() for _ in range(4)]
+            t_initial = initial_states[0]["data"]["timestamp"]
+
+            # Step control loop via synchronous REST endpoint
+            res = client.post("/api/control/loop/step")
+            assert res.status_code == 200
+            cycle_data = res.json()
+            assert cycle_data["cycle"] >= 1
+
+            # WebSocket client receives broadcast of traffic.update for all 4 intersections
+            broadcast_states = [ws.receive_json() for _ in range(4)]
+            received_intersections = set()
+            for ev in broadcast_states:
+                assert ev["event"] == "traffic.update"
+                state = TrafficState.model_validate(ev["data"])
+                received_intersections.add(state.intersection_id)
+                assert state.timestamp > t_initial
+
+            assert received_intersections == {"I1", "I2", "I3", "I4"}

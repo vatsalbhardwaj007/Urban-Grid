@@ -180,10 +180,23 @@ class SimulationControlLoop:
         self._current_cycle: int = 0
         self._background_task: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
+        try:
+            self._event_loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+        except RuntimeError:
+            self._event_loop = None
 
     # -------------------------------------------------------------------------
     # Properties
     # -------------------------------------------------------------------------
+
+    @property
+    def event_loop(self) -> asyncio.AbstractEventLoop | None:
+        """Return the registered async event loop for background scheduling."""
+        return self._event_loop
+
+    def set_event_loop(self, loop: asyncio.AbstractEventLoop | None) -> None:
+        """Register the application's async event loop for WebSocket broadcasts."""
+        self._event_loop = loop
 
     @property
     def mode(self) -> ControlMode:
@@ -482,14 +495,51 @@ class SimulationControlLoop:
         return []
 
     def _safe_broadcast(self, states: dict[str, TrafficState]) -> None:
-        """Schedule WebSocket broadcast without crashing sync context."""
+        """Schedule WebSocket broadcast onto the active or registered event loop.
+
+        Supports execution from:
+        1. An async coroutine on the event loop (schedules via loop.create_task)
+        2. A synchronous threadpool worker (schedules via asyncio.run_coroutine_threadsafe)
+        """
+        if self._broadcaster is None:
+            return
+
+        broadcast_fn = getattr(self._broadcaster, "broadcast_all_states", None)
+        if not inspect.iscoroutinefunction(broadcast_fn):
+            return
+
+        # 1. Current thread has an active running event loop
         try:
-            loop = asyncio.get_running_loop()
-            if inspect.iscoroutinefunction(getattr(self._broadcaster, "broadcast_all_states", None)):
-                loop.create_task(self._broadcaster.broadcast_all_states(states))
+            current_loop = asyncio.get_running_loop()
+            if current_loop.is_running():
+                current_loop.create_task(broadcast_fn(states))
+                return
         except RuntimeError:
-            # No active asyncio event loop in thread; skip non-blocking broadcast
             pass
+
+        # 2. Worker thread: schedule on the registered application event loop
+        target_loop = self._event_loop
+        if target_loop is None or not target_loop.is_running():
+            try:
+                from backend.api.dependencies import get_global_event_loop
+                global_loop = get_global_event_loop()
+                if global_loop is not None and global_loop.is_running():
+                    target_loop = global_loop
+                    self._event_loop = global_loop
+            except Exception:
+                pass
+
+        if target_loop is not None and target_loop.is_running():
+            future = asyncio.run_coroutine_threadsafe(broadcast_fn(states), target_loop)
+            try:
+                # Wait for broadcast to complete so connected clients receive the event
+                future.result(timeout=5.0)
+            except Exception as exc:
+                logger.error("Failed to broadcast WebSocket update from sync thread: %s", exc)
+                raise
+            return
+
+        logger.debug("No active or registered event loop available for WebSocket broadcast; skipping.")
 
     def _generate_emergency_actions(
         self, states: dict[str, TrafficState]

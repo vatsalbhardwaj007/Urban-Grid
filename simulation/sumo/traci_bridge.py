@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import os
 import shutil
+import threading
 import uuid
 from pathlib import Path
 from typing import Any
+
 
 try:
     import sumolib
@@ -118,10 +120,16 @@ class TraCIBridge:
         self._label = label or f"urban_grid_{uuid.uuid4().hex[:8]}"
         self._conn: Connection | None = None
         self._is_connected: bool = False
+        self._lock = threading.RLock()
 
     # -------------------------------------------------------------------------
     # Connection Lifecycle
     # -------------------------------------------------------------------------
+
+    @property
+    def lock(self) -> threading.RLock:
+        """Return the reentrant lock serializing all TraCI access."""
+        return self._lock
 
     def start(self) -> None:
         """Start the SUMO process and establish a TraCI connection.
@@ -130,42 +138,43 @@ class TraCIBridge:
             TraCIBridgeError: If TraCI is unavailable or connection fails.
             FileNotFoundError: If the configuration file does not exist.
         """
-        if self._is_connected:
-            return
+        with self._lock:
+            if self._is_connected:
+                return
 
-        if traci is None:
-            raise TraCIBridgeError("traci package is not installed or available.")
+            if traci is None:
+                raise TraCIBridgeError("traci package is not installed or available.")
 
-        if not self._config_path.exists():
-            raise FileNotFoundError(f"SUMO configuration file not found: {self._config_path}")
+            if not self._config_path.exists():
+                raise FileNotFoundError(f"SUMO configuration file not found: {self._config_path}")
 
-        binary_path = find_sumo_binary(use_gui=self._use_gui)
+            binary_path = find_sumo_binary(use_gui=self._use_gui)
 
-        cmd = [binary_path, "-c", str(self._config_path.resolve())]
+            cmd = [binary_path, "-c", str(self._config_path.resolve())]
 
-        if self._step_length is not None:
-            cmd.extend(["--step-length", str(self._step_length)])
+            if self._step_length is not None:
+                cmd.extend(["--step-length", str(self._step_length)])
 
-        # Sensible defaults for TraCI automation if not explicitly provided
-        if "--no-step-log" not in self._extra_params:
-            cmd.extend(["--no-step-log", "true"])
+            # Sensible defaults for TraCI automation if not explicitly provided
+            if "--no-step-log" not in self._extra_params:
+                cmd.extend(["--no-step-log", "true"])
 
-        if self._use_gui:
-            if "--start" not in self._extra_params:
-                cmd.append("--start")
-            if "--quit-on-end" not in self._extra_params:
-                cmd.append("--quit-on-end")
+            if self._use_gui:
+                if "--start" not in self._extra_params:
+                    cmd.append("--start")
+                if "--quit-on-end" not in self._extra_params:
+                    cmd.append("--quit-on-end")
 
-        cmd.extend(self._extra_params)
+            cmd.extend(self._extra_params)
 
-        try:
-            traci.start(cmd, label=self._label)
-            self._conn = traci.getConnection(self._label)
-            self._is_connected = True
-        except Exception as exc:
-            self._is_connected = False
-            self._conn = None
-            raise TraCIBridgeError(f"Failed to start SUMO / TraCI connection: {exc}") from exc
+            try:
+                traci.start(cmd, label=self._label)
+                self._conn = traci.getConnection(self._label)
+                self._is_connected = True
+            except Exception as exc:
+                self._is_connected = False
+                self._conn = None
+                raise TraCIBridgeError(f"Failed to start SUMO / TraCI connection: {exc}") from exc
 
     def connect(self) -> None:
         """Alias for start()."""
@@ -176,18 +185,19 @@ class TraCIBridge:
 
         Safe to call multiple times or when not connected.
         """
-        if not self._is_connected or self._conn is None:
-            self._is_connected = False
-            self._conn = None
-            return
+        with self._lock:
+            if not self._is_connected or self._conn is None:
+                self._is_connected = False
+                self._conn = None
+                return
 
-        try:
-            self._conn.close()
-        except Exception:
-            pass
-        finally:
-            self._conn = None
-            self._is_connected = False
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            finally:
+                self._conn = None
+                self._is_connected = False
 
     def __enter__(self) -> TraCIBridge:
         if not self._is_connected:
@@ -204,7 +214,8 @@ class TraCIBridge:
     @property
     def is_connected(self) -> bool:
         """Return whether the TraCI connection is currently active."""
-        return self._is_connected and self._conn is not None
+        with self._lock:
+            return self._is_connected and self._conn is not None
 
     @property
     def label(self) -> str:
@@ -221,9 +232,10 @@ class TraCIBridge:
     @property
     def simulation_time(self) -> float:
         """Return the current simulation time in seconds."""
-        self._ensure_connected()
-        assert self._conn is not None
-        return float(self._conn.simulation.getTime())
+        with self._lock:
+            self._ensure_connected()
+            assert self._conn is not None
+            return float(self._conn.simulation.getTime())
 
     @property
     def current_time(self) -> float:
@@ -233,9 +245,10 @@ class TraCIBridge:
     @property
     def has_active_vehicles(self) -> bool:
         """Return True if there are still vehicles running or waiting to be inserted."""
-        self._ensure_connected()
-        assert self._conn is not None
-        return int(self._conn.simulation.getMinExpectedNumber()) > 0
+        with self._lock:
+            self._ensure_connected()
+            assert self._conn is not None
+            return int(self._conn.simulation.getMinExpectedNumber()) > 0
 
     def _ensure_connected(self) -> None:
         if not self._is_connected or self._conn is None:
@@ -254,13 +267,14 @@ class TraCIBridge:
         Returns:
             Current simulation time after stepping.
         """
-        self._ensure_connected()
-        assert self._conn is not None
-        if target_time is not None:
-            self._conn.simulationStep(target_time)
-        else:
-            self._conn.simulationStep()
-        return float(self._conn.simulation.getTime())
+        with self._lock:
+            self._ensure_connected()
+            assert self._conn is not None
+            if target_time is not None:
+                self._conn.simulationStep(target_time)
+            else:
+                self._conn.simulationStep()
+            return float(self._conn.simulation.getTime())
 
     def step_many(self, steps: int) -> float:
         """Advance the simulation by a given number of steps.
@@ -271,13 +285,14 @@ class TraCIBridge:
         Returns:
             Current simulation time after stepping.
         """
-        self._ensure_connected()
-        assert self._conn is not None
-        if steps <= 0:
+        with self._lock:
+            self._ensure_connected()
+            assert self._conn is not None
+            if steps <= 0:
+                return float(self._conn.simulation.getTime())
+            for _ in range(steps):
+                self._conn.simulationStep()
             return float(self._conn.simulation.getTime())
-        for _ in range(steps):
-            self._conn.simulationStep()
-        return float(self._conn.simulation.getTime())
 
     # -------------------------------------------------------------------------
     # Vehicle State Methods
@@ -285,9 +300,10 @@ class TraCIBridge:
 
     def get_vehicle_ids(self) -> list[str]:
         """Return list of active vehicle IDs in the simulation."""
-        self._ensure_connected()
-        assert self._conn is not None
-        return list(self._conn.vehicle.getIDList())
+        with self._lock:
+            self._ensure_connected()
+            assert self._conn is not None
+            return list(self._conn.vehicle.getIDList())
 
     def get_vehicle_state(self, vehicle_id: str) -> dict[str, Any]:
         """Return state dictionary for a specific vehicle.
@@ -298,23 +314,25 @@ class TraCIBridge:
         Returns:
             Dictionary with vehicle_id, speed, lane_id, position, etc.
         """
-        self._ensure_connected()
-        assert self._conn is not None
-        return {
-            "vehicle_id": vehicle_id,
-            "speed": float(self._conn.vehicle.getSpeed(vehicle_id)),
-            "lane_id": str(self._conn.vehicle.getLaneID(vehicle_id)),
-            "lane_position": float(self._conn.vehicle.getLanePosition(vehicle_id)),
-            "route_id": str(self._conn.vehicle.getRouteID(vehicle_id)),
-            "type_id": str(self._conn.vehicle.getTypeID(vehicle_id)),
-            "waiting_time": float(self._conn.vehicle.getWaitingTime(vehicle_id)),
-        }
+        with self._lock:
+            self._ensure_connected()
+            assert self._conn is not None
+            return {
+                "vehicle_id": vehicle_id,
+                "speed": float(self._conn.vehicle.getSpeed(vehicle_id)),
+                "lane_id": str(self._conn.vehicle.getLaneID(vehicle_id)),
+                "lane_position": float(self._conn.vehicle.getLanePosition(vehicle_id)),
+                "route_id": str(self._conn.vehicle.getRouteID(vehicle_id)),
+                "type_id": str(self._conn.vehicle.getTypeID(vehicle_id)),
+                "waiting_time": float(self._conn.vehicle.getWaitingTime(vehicle_id)),
+            }
 
     def get_all_vehicles(self) -> list[dict[str, Any]]:
         """Return state dictionaries for all active vehicles."""
-        self._ensure_connected()
-        assert self._conn is not None
-        return [self.get_vehicle_state(vid) for vid in self.get_vehicle_ids()]
+        with self._lock:
+            self._ensure_connected()
+            assert self._conn is not None
+            return [self.get_vehicle_state(vid) for vid in self.get_vehicle_ids()]
 
     # -------------------------------------------------------------------------
     # Lane State Methods
@@ -326,44 +344,49 @@ class TraCIBridge:
         Args:
             include_internal: If True, includes internal junction lanes (starting with ':').
         """
-        self._ensure_connected()
-        assert self._conn is not None
-        lane_ids = list(self._conn.lane.getIDList())
-        if not include_internal:
-            lane_ids = [lid for lid in lane_ids if not lid.startswith(":")]
-        return lane_ids
+        with self._lock:
+            self._ensure_connected()
+            assert self._conn is not None
+            lane_ids = list(self._conn.lane.getIDList())
+            if not include_internal:
+                lane_ids = [lid for lid in lane_ids if not lid.startswith(":")]
+            return lane_ids
 
     def get_lane_vehicle_count(self, lane_id: str) -> int:
         """Return number of vehicles on the specified lane."""
-        self._ensure_connected()
-        assert self._conn is not None
-        return int(self._conn.lane.getLastStepVehicleNumber(lane_id))
+        with self._lock:
+            self._ensure_connected()
+            assert self._conn is not None
+            return int(self._conn.lane.getLastStepVehicleNumber(lane_id))
 
     def get_lane_vehicle_ids(self, lane_id: str) -> list[str]:
         """Return list of vehicle IDs currently on the specified lane."""
-        self._ensure_connected()
-        assert self._conn is not None
-        return list(self._conn.lane.getLastStepVehicleIDs(lane_id))
+        with self._lock:
+            self._ensure_connected()
+            assert self._conn is not None
+            return list(self._conn.lane.getLastStepVehicleIDs(lane_id))
 
     def get_lane_state(self, lane_id: str) -> dict[str, Any]:
         """Return state dictionary for a specific lane."""
-        self._ensure_connected()
-        assert self._conn is not None
-        return {
-            "lane_id": lane_id,
-            "vehicle_count": int(self._conn.lane.getLastStepVehicleNumber(lane_id)),
-            "mean_speed": float(self._conn.lane.getLastStepMeanSpeed(lane_id)),
-            "occupancy": float(self._conn.lane.getLastStepOccupancy(lane_id)),
-            "length": float(self._conn.lane.getLength(lane_id)),
-            "max_speed": float(self._conn.lane.getMaxSpeed(lane_id)),
-            "vehicle_ids": list(self._conn.lane.getLastStepVehicleIDs(lane_id)),
-        }
+        with self._lock:
+            self._ensure_connected()
+            assert self._conn is not None
+            return {
+                "lane_id": lane_id,
+                "vehicle_count": int(self._conn.lane.getLastStepVehicleNumber(lane_id)),
+                "mean_speed": float(self._conn.lane.getLastStepMeanSpeed(lane_id)),
+                "occupancy": float(self._conn.lane.getLastStepOccupancy(lane_id)),
+                "length": float(self._conn.lane.getLength(lane_id)),
+                "max_speed": float(self._conn.lane.getMaxSpeed(lane_id)),
+                "vehicle_ids": list(self._conn.lane.getLastStepVehicleIDs(lane_id)),
+            }
 
     def get_all_lanes(self, include_internal: bool = False) -> list[dict[str, Any]]:
         """Return state dictionaries for all lanes."""
-        self._ensure_connected()
-        assert self._conn is not None
-        return [self.get_lane_state(lid) for lid in self.get_lane_ids(include_internal=include_internal)]
+        with self._lock:
+            self._ensure_connected()
+            assert self._conn is not None
+            return [self.get_lane_state(lid) for lid in self.get_lane_ids(include_internal=include_internal)]
 
     # -------------------------------------------------------------------------
     # Traffic-Light State Methods
@@ -371,9 +394,10 @@ class TraCIBridge:
 
     def get_traffic_light_ids(self) -> list[str]:
         """Return list of traffic light IDs in the network."""
-        self._ensure_connected()
-        assert self._conn is not None
-        return list(self._conn.trafficlight.getIDList())
+        with self._lock:
+            self._ensure_connected()
+            assert self._conn is not None
+            return list(self._conn.trafficlight.getIDList())
 
     def get_traffic_light_state(self, tls_id: str) -> dict[str, Any]:
         """Return live state for a specific traffic light.
@@ -382,22 +406,25 @@ class TraCIBridge:
         Only the phase name, signal state string ('r/y/g/G'), duration, and
         remaining time are exposed in the standard output.
         """
-        self._ensure_connected()
-        assert self._conn is not None
-        current_time = float(self._conn.simulation.getTime())
-        next_switch = float(self._conn.trafficlight.getNextSwitch(tls_id))
-        remaining = max(0.0, next_switch - current_time)
-        return {
-            "tls_id": tls_id,
-            "state": str(self._conn.trafficlight.getRedYellowGreenState(tls_id)),
-            "phase_name": str(self._conn.trafficlight.getPhaseName(tls_id)),
-            "phase_duration": float(self._conn.trafficlight.getPhaseDuration(tls_id)),
-            "remaining_phase_time": remaining,
-            "next_switch": next_switch,
-        }
+        with self._lock:
+            self._ensure_connected()
+            assert self._conn is not None
+            current_time = float(self._conn.simulation.getTime())
+            next_switch = float(self._conn.trafficlight.getNextSwitch(tls_id))
+            remaining = max(0.0, next_switch - current_time)
+            return {
+                "tls_id": tls_id,
+                "state": str(self._conn.trafficlight.getRedYellowGreenState(tls_id)),
+                "phase_name": str(self._conn.trafficlight.getPhaseName(tls_id)),
+                "phase_duration": float(self._conn.trafficlight.getPhaseDuration(tls_id)),
+                "remaining_phase_time": remaining,
+                "next_switch": next_switch,
+            }
 
     def get_all_traffic_lights(self) -> list[dict[str, Any]]:
         """Return live states for all traffic lights."""
-        self._ensure_connected()
-        assert self._conn is not None
-        return [self.get_traffic_light_state(tid) for tid in self.get_traffic_light_ids()]
+        with self._lock:
+            self._ensure_connected()
+            assert self._conn is not None
+            return [self.get_traffic_light_state(tid) for tid in self.get_traffic_light_ids()]
+
