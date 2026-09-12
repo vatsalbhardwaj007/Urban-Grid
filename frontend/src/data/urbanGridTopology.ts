@@ -2,6 +2,8 @@ import { buildings } from './mockBuildings'
 import type { NetworkConfig } from '../types/digitalTwin'
 
 /** Static render-only topology for M2's canonical I1–I4 2×2 grid. */
+export const CANONICAL_INTERSECTION_IDS = ['I1', 'I2', 'I3', 'I4'] as const
+
 export const urbanGridTopology: NetworkConfig = {
   junctions: [
     { id: 'I1', name: 'Northwest', x: -11, z: 9, type: 'four-way' },

@@ -1,12 +1,12 @@
 import { memo } from 'react'
-import type { Junction as JunctionDefinition, TrafficStatus } from '../../types/digitalTwin'
+import type { Junction as JunctionDefinition, TrafficVisualStatus } from '../../types/digitalTwin'
 
 const ROAD_H = .08
 const PAD_SIZE = 5.4
-const statusColors: Record<TrafficStatus, string> = { flowing: '#63e1b3', moderate: '#f2b755', critical: '#f2766d' }
-const statusEmissive: Record<TrafficStatus, string> = { flowing: '#0e3d2a', moderate: '#3d2e00', critical: '#3d0e0e' }
+const statusColors: Record<TrafficVisualStatus, string> = { flowing: '#63e1b3', moderate: '#f2b755', critical: '#f2766d', unknown: '#4d7178' }
+const statusEmissive: Record<TrafficVisualStatus, string> = { flowing: '#0e3d2a', moderate: '#3d2e00', critical: '#3d0e0e', unknown: '#182c32' }
 
-export const Junction = memo(function Junction({ junction, status, selected, onSelect }: { junction: JunctionDefinition; status: TrafficStatus; selected: boolean; onSelect: (id: string) => void }) {
+export const Junction = memo(function Junction({ junction, status, totalQueue, selected, onSelect }: { junction: JunctionDefinition; status: TrafficVisualStatus; totalQueue: number; selected: boolean; onSelect: (id: string) => void }) {
   const statusColor = statusColors[status]
   const isFourWay = junction.type === 'four-way'
   const cornerOffset = PAD_SIZE / 2 - .35
@@ -17,6 +17,8 @@ export const Junction = memo(function Junction({ junction, status, selected, onS
     {[[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sz], index) => <mesh key={index} position={[sx * cornerOffset, ROAD_H + .023, sz * cornerOffset]}><boxGeometry args={[.3, .01, .08]} /><meshBasicMaterial color="#3a7080" transparent opacity={.55} /></mesh>)}
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, ROAD_H + .03, 0]}><ringGeometry args={[PAD_SIZE / 2 - .08, PAD_SIZE / 2 + .18, isFourWay ? 4 : 3]} /><meshBasicMaterial color={selected ? statusColor : status === 'critical' ? '#f2766d' : '#2c5f6a'} transparent opacity={selected ? .75 : status === 'critical' ? .45 : .3} /></mesh>
     {selected && <pointLight color={statusColor} intensity={6} distance={9} position={[0, 2.5, 0]} />}
+    {/* Aggregate queue gauge: an observed count, not simulated individual vehicles. */}
+    <mesh position={[0, .12 + Math.min(totalQueue, 12) * .07, 0]}><boxGeometry args={[.38, Math.max(.04, Math.min(totalQueue, 12) * .14), .38]} /><meshBasicMaterial color={statusColor} transparent opacity={.85} /></mesh>
     <mesh position={[0, .45, 0]}><boxGeometry args={[.55, .08, .04]} /><meshBasicMaterial color={selected ? statusColor : '#2a6070'} transparent opacity={selected ? .9 : .45} /></mesh>
   </group>
 })

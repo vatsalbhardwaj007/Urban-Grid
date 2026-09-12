@@ -1,13 +1,13 @@
 import { memo } from 'react'
-import type { Junction, TrafficStatus } from '../../types/digitalTwin'
+import type { Junction, TrafficVisualStatus } from '../../types/digitalTwin'
 
 const ROAD_HALF_W = 2.4
 const KERB_W = 0.28
 const SIDEWALK_W = 0.55
 const ROAD_H = 0.08
-const roadSurfaceColors: Record<TrafficStatus, string> = { flowing: '#1d3c45', moderate: '#2e3822', critical: '#3a2120' }
+const roadSurfaceColors: Record<TrafficVisualStatus, string> = { flowing: '#1d3c45', moderate: '#2e3822', critical: '#3a2120', unknown: '#182c33' }
 
-export const Road = memo(function Road({ from, to, status }: { from: Junction; to: Junction; status: TrafficStatus }) {
+export const Road = memo(function Road({ from, to, status }: { from: Junction; to: Junction; status: TrafficVisualStatus }) {
   const dx = to.x - from.x
   const dz = to.z - from.z
   const length = Math.hypot(dx, dz)

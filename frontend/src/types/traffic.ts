@@ -34,18 +34,22 @@ export interface HealthResponse { status: 'ok'; simulation_connected: boolean; s
 export interface ApiErrorResponse { detail: string | Array<{ loc: Array<string | number>; msg: string; type: string }> }
 export interface ControlLoopStatus { is_running: boolean; current_cycle: number; step_interval: number; cycle_delay: number; error_policy: string; decision_engine: string }
 export interface SignalActuationResult { success: boolean; target: string; applied_duration: number; current_phase: string; applied_to: string; source: ActionSource; message: string }
-export interface ControlCycleResult { cycle: number; simulation_time: number; states: TrafficSnapshot; actions_attempted: number; action_results: SignalActuationResult[]; errors: string[]; success: boolean }
+/** M2 declares control-loop action_results as list[dict[str, Any]]. */
+export interface ControlCycleResult { cycle: number; simulation_time: number; states: TrafficSnapshot; actions_attempted: number; action_results: Array<Record<string, unknown>>; errors: string[]; success: boolean }
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 const isNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+const isNonNegativeNumber = (value: unknown): value is number => isNumber(value) && value >= 0
+const isNonNegativeInteger = (value: unknown): value is number => isNumber(value) && Number.isInteger(value) && value >= 0
 const isSignalPhase = (value: unknown): value is SignalPhase => value === 'RED' || value === 'YELLOW' || value === 'GREEN'
+const isActionSource = (value: unknown): value is ActionSource => value === 'AI' || value === 'FALLBACK' || value === 'MANUAL'
 
 export function isLaneFeature(value: unknown): value is LaneFeature {
-  return isRecord(value) && typeof value.lane_id === 'string' && isNumber(value.vehicle_count) && isNumber(value.mean_speed) && isNumber(value.queue_length) && isNumber(value.occupancy) && isNumber(value.arrival_rate) && isNumber(value.density) && isNumber(value.flow)
+  return isRecord(value) && typeof value.lane_id === 'string' && isNonNegativeInteger(value.vehicle_count) && isNonNegativeNumber(value.mean_speed) && isNonNegativeInteger(value.queue_length) && isNonNegativeNumber(value.occupancy) && isNonNegativeNumber(value.arrival_rate) && isNonNegativeNumber(value.density) && isNonNegativeNumber(value.flow)
 }
 
 export function isTrafficState(value: unknown): value is TrafficState {
-  return isRecord(value) && isNumber(value.timestamp) && typeof value.intersection_id === 'string' && Array.isArray(value.lane_features) && value.lane_features.every(isLaneFeature) && isNumber(value.total_queue) && isNumber(value.mean_speed) && isNumber(value.arrival_rate) && isNumber(value.density) && isSignalPhase(value.signal_phase) && isNumber(value.green_remaining)
+  return isRecord(value) && isNonNegativeNumber(value.timestamp) && typeof value.intersection_id === 'string' && Array.isArray(value.lane_features) && value.lane_features.every(isLaneFeature) && isNonNegativeInteger(value.total_queue) && isNonNegativeNumber(value.mean_speed) && isNonNegativeNumber(value.arrival_rate) && isNonNegativeNumber(value.density) && isSignalPhase(value.signal_phase) && isNonNegativeNumber(value.green_remaining)
 }
 
 export function isTrafficSnapshot(value: unknown): value is TrafficSnapshot {
@@ -56,4 +60,9 @@ export function parseWebSocketMessage(value: unknown): WebSocketIncomingMessage 
   if (!isRecord(value) || typeof value.event !== 'string') return null
   if (value.event === 'pong') return { event: 'pong' }
   return value.event === 'traffic.update' && isTrafficState(value.data) ? { event: 'traffic.update', data: value.data } : null
+}
+
+/** Safe presentation selector for the generic M2 control-loop result objects. */
+export function isSignalActuationResult(value: unknown): value is SignalActuationResult {
+  return isRecord(value) && typeof value.success === 'boolean' && typeof value.target === 'string' && isNumber(value.applied_duration) && typeof value.current_phase === 'string' && typeof value.applied_to === 'string' && isActionSource(value.source) && typeof value.message === 'string'
 }

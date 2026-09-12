@@ -15,7 +15,9 @@ export function CameraController({ mode, selectedJunctionId, followedVehicleId, 
     let target: [number, number, number] = [0, 0, 0]
     if (mode === 'junction' && selected) { cameraPosition = [selected.x + 9, 14, selected.z + 9]; target = [selected.x, 0, selected.z] }
     if (mode === 'building') { cameraPosition = [2, 26, 18]; target = [0, 0, 2] }
-    if (mode === 'followVehicle') return
+    if (mode === 'followVehicle') {
+      if (selected) { cameraPosition = [selected.x + 9, 14, selected.z + 9]; target = [selected.x, 0, selected.z] }
+    }
     if (mode === 'localTwin') { cameraPosition = [8, 12, 6]; target = [4, 0, -2] }
     camera.position.set(...cameraPosition)
     controls.current?.target.set(...target)

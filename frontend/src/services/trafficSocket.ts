@@ -1,7 +1,8 @@
 import { backendConfig } from '../config/backend'
 import { parseWebSocketMessage } from '../types/traffic'
+import type { TrafficState } from '../types/traffic'
 
-type Handlers = { onOpen: () => void; onUpdate: (raw: unknown) => void; onPong: () => void; onMalformed: () => void; onClose: () => void; onError: () => void }
+type Handlers = { onOpen: () => void; onUpdate: (traffic: TrafficState) => void; onPong: () => void; onMalformed: () => void; onClose: () => void; onError: () => void }
 
 /** Thin transport wrapper: canonical parsing remains in the store. */
 export function openTrafficSocket(handlers: Handlers) {
