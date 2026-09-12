@@ -10,11 +10,13 @@ WORKSPACE_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKSPACE_ROOT))
 
-from simulation.sumo.traci_bridge import TraCIBridge
+from simulation.sumo.actuation import ActionDispatcher
 from simulation.sumo.state_provider import TrafficStateProvider
+from simulation.sumo.traci_bridge import TraCIBridge
 
 _bridge: TraCIBridge | None = None
 _provider: TrafficStateProvider | None = None
+_dispatcher: ActionDispatcher | None = None
 
 
 def get_bridge() -> TraCIBridge:
@@ -39,6 +41,20 @@ def get_state_provider() -> TrafficStateProvider:
     return _provider
 
 
+def get_action_dispatcher() -> ActionDispatcher:
+    """Return the managed ActionDispatcher singleton.
+
+    Ensures the underlying simulation is connected before returning.
+    """
+    global _dispatcher
+    if _dispatcher is None:
+        bridge = get_bridge()
+        _dispatcher = ActionDispatcher(bridge)
+    if not _dispatcher.signal_actuator.bridge.is_connected:
+        _dispatcher.signal_actuator.bridge.start()
+    return _dispatcher
+
+
 def start_simulation() -> TrafficStateProvider:
     """Initialize and start the simulation connection on application startup."""
     provider = get_state_provider()
@@ -49,8 +65,9 @@ def start_simulation() -> TrafficStateProvider:
 
 def stop_simulation() -> None:
     """Terminate TraCI and cleanly shut down the SUMO process."""
-    global _bridge, _provider
+    global _bridge, _provider, _dispatcher
     if _bridge is not None:
         _bridge.close()
     _bridge = None
     _provider = None
+    _dispatcher = None

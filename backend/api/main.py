@@ -23,12 +23,27 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from backend.api.dependencies import (
+    get_action_dispatcher,
     get_state_provider,
     start_simulation,
     stop_simulation,
 )
 from backend.api.websocket import ConnectionManager, get_connection_manager
+from shared.schemas.route_action import RouteAction
+from shared.schemas.signal_action import SignalAction
 from shared.schemas.traffic_state import TrafficState
+from simulation.sumo.actuation import (
+    ActionDispatcher,
+    ActuationError,
+    InvalidRouteEdgeError,
+    InvalidRouteError,
+    InvalidSignalDurationError,
+    RouteActuationResult,
+    SignalActuationResult,
+    SimulationDisconnectedError,
+    UnknownTrafficLightError,
+    UnknownVehicleError,
+)
 from simulation.sumo.state_provider import TrafficStateProvider
 from simulation.sumo.traci_bridge import TraCIBridgeError
 
@@ -248,3 +263,64 @@ async def traffic_websocket_endpoint(
                 pass
     finally:
         await manager.disconnect(websocket)
+
+
+@app.post(
+    "/api/control/signal",
+    response_model=SignalActuationResult,
+    summary="Apply M1 SignalAction timing recommendation",
+    tags=["Control Actions"],
+)
+def control_signal(
+    action: SignalAction,
+    dispatcher: ActionDispatcher = Depends(get_action_dispatcher),
+) -> SignalActuationResult:
+    """Validate and actuate a traffic signal timing recommendation from M1."""
+    try:
+        return dispatcher.apply_signal(action)
+    except (UnknownTrafficLightError, InvalidSignalDurationError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except SimulationDisconnectedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    except ActuationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Signal actuation failed: {exc}",
+        ) from exc
+
+
+@app.post(
+    "/api/control/route",
+    response_model=RouteActuationResult,
+    summary="Apply M1 RouteAction rerouting directive",
+    tags=["Control Actions"],
+)
+def control_route(
+    action: RouteAction,
+    dispatcher: ActionDispatcher = Depends(get_action_dispatcher),
+) -> RouteActuationResult:
+    """Validate and actuate a vehicle rerouting directive from M1."""
+    try:
+        return dispatcher.apply_route(action)
+    except (UnknownVehicleError, InvalidRouteEdgeError, InvalidRouteError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except SimulationDisconnectedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+    except ActuationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Route actuation failed: {exc}",
+        ) from exc
+
