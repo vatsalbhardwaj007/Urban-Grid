@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<viewsettings xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/viewsettings_file.xsd">
+    <viewport zoom="120" x="500.00" y="500.00"/>
+    <scheme name="standard">
+        <edges colorScheme="uniform" laneEdgeColor="1" laneShowBorders="1"/>
+        <vehicles colorScheme="given vehicle color" vehicleSize="1"/>
+        <junctions showLane2Lane="1"/>
+    </scheme>
+</viewsettings>

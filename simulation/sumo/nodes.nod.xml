@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nodes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/nodes_file.xsd">
+    <!-- 4 Signalized Main Intersections -->
+    <node id="I1" x="250.0" y="750.0" type="traffic_light"/>
+    <node id="I2" x="750.0" y="750.0" type="traffic_light"/>
+    <node id="I3" x="250.0" y="250.0" type="traffic_light"/>
+    <node id="I4" x="750.0" y="250.0" type="traffic_light"/>
+
+    <!-- External Entry / Exit Approach Nodes -->
+    <node id="J_W1" x="0.0" y="750.0" type="priority"/>
+    <node id="J_E2" x="1000.0" y="750.0" type="priority"/>
+    <node id="J_W3" x="0.0" y="250.0" type="priority"/>
+    <node id="J_E4" x="1000.0" y="250.0" type="priority"/>
+    <node id="J_N1" x="250.0" y="1000.0" type="priority"/>
+    <node id="J_N2" x="750.0" y="1000.0" type="priority"/>
+    <node id="J_S3" x="250.0" y="0.0" type="priority"/>
+    <node id="J_S4" x="750.0" y="0.0" type="priority"/>
+</nodes>
