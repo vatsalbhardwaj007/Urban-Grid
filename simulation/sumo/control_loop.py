@@ -19,6 +19,7 @@ import asyncio
 import inspect
 import logging
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Protocol, Sequence, runtime_checkable
 
@@ -29,16 +30,19 @@ if str(WORKSPACE_ROOT) not in sys.path:
 
 from pydantic import BaseModel, Field
 
+from shared.schemas.control_mode import ControlMode
 from shared.schemas.route_action import RouteAction
-from shared.schemas.signal_action import SignalAction
+from shared.schemas.signal_action import ActionSource, SignalAction
 from shared.schemas.traffic_state import TrafficState
 from simulation.sumo.actuation import (
     ActionDispatcher,
     ActuationError,
+    ModeRestrictedActionError,
     RouteActuationResult,
     SignalActuationResult,
     SimulationDisconnectedError,
 )
+
 from simulation.sumo.m1_adapter import RealM1DecisionEngine
 from simulation.sumo.state_provider import TrafficStateProvider
 from simulation.sumo.traci_bridge import TraCIBridgeError
@@ -114,6 +118,7 @@ class ControlCycleResult(BaseModel):
     cycle: int = Field(description="Sequential cycle index.")
     simulation_time: float = Field(description="SUMO simulation timestamp at the end of the cycle.")
     states: dict[str, TrafficState] = Field(description="Canonical TrafficState for all intersections.")
+    mode: ControlMode = Field(default=ControlMode.AUTO, description="Active control mode during this cycle.")
     actions_attempted: int = Field(default=0, description="Total actions received from decision engine.")
     action_results: list[dict[str, Any]] = Field(
         default_factory=list, description="Results of successfully applied actions."
@@ -122,6 +127,7 @@ class ControlCycleResult(BaseModel):
         default_factory=list, description="Errors or warnings encountered during actuation."
     )
     success: bool = Field(default=True, description="Whether the cycle executed without fatal crash.")
+
 
 
 # =============================================================================
@@ -144,6 +150,7 @@ class SimulationControlLoop:
         step_interval: int = 1,
         cycle_delay: float = 0.0,
         error_policy: str = "continue",
+        mode: ControlMode = ControlMode.AUTO,
     ) -> None:
         """Initialize SimulationControlLoop.
 
@@ -155,6 +162,7 @@ class SimulationControlLoop:
             step_interval: Number of SUMO simulation steps per cycle (default 1).
             cycle_delay: Real-world delay in seconds between cycles (default 0.0).
             error_policy: 'continue' (log error and proceed) or 'stop' (halt loop on error).
+            mode: Initial ControlMode (default AUTO).
         """
         self._provider = provider
         self._dispatcher = dispatcher
@@ -164,6 +172,10 @@ class SimulationControlLoop:
         self._cycle_delay = max(0.0, cycle_delay)
         self._error_policy = error_policy
 
+        self._mode: ControlMode = mode
+        self._previous_mode: ControlMode | None = None
+        self._dispatcher.mode = self._mode
+
         self._is_running: bool = False
         self._current_cycle: int = 0
         self._background_task: asyncio.Task[None] | None = None
@@ -172,6 +184,52 @@ class SimulationControlLoop:
     # -------------------------------------------------------------------------
     # Properties
     # -------------------------------------------------------------------------
+
+    @property
+    def mode(self) -> ControlMode:
+        """Return the current system control mode (single source of truth)."""
+        return self._mode
+
+    @property
+    def previous_mode(self) -> ControlMode | None:
+        """Return the previous control mode prior to the latest transition."""
+        return self._previous_mode
+
+    def set_mode(self, mode: ControlMode | str) -> tuple[ControlMode, ControlMode | None]:
+        """Safely transition system control mode and synchronize with dispatcher.
+
+        Does not restart background loop or create duplicate background tasks.
+
+        Args:
+            mode: Target ControlMode (or valid string representation).
+
+        Returns:
+            Tuple of (new_mode, previous_mode).
+
+        Raises:
+            ValueError: If mode is not a valid ControlMode.
+        """
+        if isinstance(mode, str):
+            try:
+                mode = ControlMode(mode.upper())
+            except ValueError:
+                raise ValueError(
+                    f"Invalid control mode '{mode}'. Allowed values: {[m.value for m in ControlMode]}"
+                )
+        elif not isinstance(mode, ControlMode):
+            raise ValueError(
+                f"Invalid control mode '{mode}'. Expected ControlMode enum."
+            )
+
+        if mode == self._mode:
+            return self._mode, self._previous_mode
+
+        prev = self._mode
+        self._previous_mode = prev
+        self._mode = mode
+        self._dispatcher.mode = mode
+        logger.info("Control mode transitioned: %s -> %s", prev.value, mode.value)
+        return self._mode, self._previous_mode
 
     @property
     def provider(self) -> TrafficStateProvider:
@@ -242,9 +300,12 @@ class SimulationControlLoop:
         1. Ensure TraCI connection
         2. Advance SUMO by step_interval & collect TrafficState
         3. Broadcast TrafficState over WebSocket (if broadcaster present)
-        4. Request decisions from M1 decision engine
-        5. Apply valid actions through ActionDispatcher
-        6. Return detailed ControlCycleResult
+        4. Apply control policy based on active ControlMode:
+           - AUTO: Request decisions from M1 AI and dispatch to ActionDispatcher
+           - MANUAL: M1 passively observes; M1 actions are NOT automatically dispatched
+           - EMERGENCY: Suppress normal AI control; generate deterministic FALLBACK
+             SignalActions (green_duration=60.0) for I1-I4 via ActionDispatcher
+        5. Return detailed ControlCycleResult
 
         Returns:
             ControlCycleResult describing the executed cycle.
@@ -273,15 +334,28 @@ class SimulationControlLoop:
         if self._broadcaster is not None:
             self._safe_broadcast(states)
 
-        # 3. Obtain M1 decision
-        raw_actions = self._invoke_decision_engine(states)
+        # 3. Determine actions to dispatch based on active ControlMode
+        actions_to_dispatch: list[SignalAction | RouteAction] = []
 
-        # 4. Normalize actions
-        actions = self._normalize_actions(raw_actions)
-        actions_attempted = len(actions)
+        if self._mode == ControlMode.AUTO:
+            # AUTO: Normal closed-loop AI operation
+            raw_actions = self._invoke_decision_engine(states)
+            actions_to_dispatch = self._normalize_actions(raw_actions)
 
-        # 5. Dispatch actions
-        for action in actions:
+        elif self._mode == ControlMode.MANUAL:
+            # MANUAL: M1 observes traffic passively; AI actions must NOT automatically actuate SUMO
+            self._invoke_decision_engine(states)
+            actions_to_dispatch = []
+
+        elif self._mode == ControlMode.EMERGENCY:
+            # EMERGENCY: Deterministic corridor emergency policy
+            # AI actions suppressed; generate deterministic FALLBACK SignalActions for I1-I4 (60.0s)
+            actions_to_dispatch = self._generate_emergency_actions(states)
+
+        actions_attempted = len(actions_to_dispatch)
+
+        # 4. Dispatch actions through existing ActionDispatcher
+        for action in actions_to_dispatch:
             try:
                 res = self._dispatcher.dispatch(action)
                 action_results.append(res.model_dump(mode="json"))
@@ -305,11 +379,13 @@ class SimulationControlLoop:
             cycle=cycle_idx,
             simulation_time=sim_time,
             states=states,
+            mode=self._mode,
             actions_attempted=actions_attempted,
             action_results=action_results,
             errors=errors,
             success=(len(errors) == 0),
         )
+
 
     def run_steps(self, n_cycles: int) -> list[ControlCycleResult]:
         """Run a fixed number of synchronous control cycles."""
@@ -414,3 +490,27 @@ class SimulationControlLoop:
         except RuntimeError:
             # No active asyncio event loop in thread; skip non-blocking broadcast
             pass
+
+    def _generate_emergency_actions(
+        self, states: dict[str, TrafficState]
+    ) -> list[SignalAction]:
+        """Generate deterministic emergency corridor priority actions for I1-I4.
+
+        Produces FALLBACK SignalActions with green_duration=60.0 for all intersections.
+        Actuation flows through ActionDispatcher -> SignalActuator -> TraCI,
+        updating the green phase (NS_GREEN/EW_GREEN) while safely preserving yellow phases.
+        """
+        now = datetime.now(timezone.utc)
+        target_ids = list(states.keys()) if states else ["I1", "I2", "I3", "I4"]
+        target_ids.sort()
+
+        return [
+            SignalAction(
+                target=target_id,
+                green_duration=60.0,
+                source=ActionSource.FALLBACK,
+                timestamp=now,
+            )
+            for target_id in target_ids
+        ]
+
