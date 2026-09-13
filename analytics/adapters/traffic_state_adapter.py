@@ -54,6 +54,10 @@ UNSUPPORTED_TRAFFIC_STATE_METRICS: dict[str, str] = {
         "Trip travel time requires vehicle-level origin-destination trajectory tracking, "
         "which is outside the scope of intersection-level instantaneous TrafficState snapshots."
     ),
+    "average_travel_time": (
+        "Average travel time requires vehicle trip completion records across routes, "
+        "which is outside the scope of intersection-level instantaneous TrafficState snapshots."
+    ),
 }
 
 
