@@ -1,33 +1,146 @@
 import { OrbitControls } from '@react-three/drei'
-import { useThree } from '@react-three/fiber'
-import { useEffect, useRef } from 'react'
+import { useFrame, useThree } from '@react-three/fiber'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { MOUSE, PerspectiveCamera, TOUCH, Vector3 } from 'three'
 import type { ViewMode, VehicleState } from '../../types/digitalTwin'
+import { clampCameraDistance, clampPanTarget, getCameraPreset, getCityBounds, getCityPreset, MAX_POLAR_ANGLE, MIN_CAMERA_DISTANCE } from './cameraPresets'
 
-type Props = { mode: ViewMode; selectedJunctionId: string; followedVehicleId: string | null; vehicles: VehicleState[]; junctions: Array<{ id: string; x: number; z: number }>; resetSignal: number }
+type Props = {
+  mode: ViewMode
+  selectedJunctionId: string
+  followedVehicleId: string | null
+  vehicles: VehicleState[]
+  junctions: Array<{ id: string; x: number; z: number }>
+  resetSignal: number
+  focusSignal?: number
+  panMode?: boolean
+  zoomRequest?: { direction: 1 | -1; sequence: number }
+}
+type Transition = {
+  fromPosition: Vector3; toPosition: Vector3; fromTarget: Vector3; toTarget: Vector3
+  elapsed: number; duration: number; kind: 'preset' | 'zoom'
+}
 
-export function CameraController({ mode, selectedJunctionId, followedVehicleId, vehicles, junctions, resetSignal }: Props) {
-  const { camera } = useThree()
+export function CameraController({ mode, selectedJunctionId, followedVehicleId, vehicles, junctions, resetSignal, focusSignal = 0, zoomRequest, panMode = false }: Props) {
+  const { camera, size, gl } = useThree()
   const controls = useRef<React.ComponentRef<typeof OrbitControls>>(null)
+  const transition = useRef<Transition | null>(null)
+  const reducedMotion = useRef(false)
+  const manuallyMoved = useRef(false)
+  const selected = junctions.find((junction) => junction.id === selectedJunctionId)
   const followed = followedVehicleId ? vehicles.find((vehicle) => vehicle.id === followedVehicleId) : undefined
+  const { minX, maxX, minZ, maxZ } = getCityBounds(junctions)
+  const aspect = size.width / Math.max(1, size.height)
+  const fov = camera instanceof PerspectiveCamera ? camera.fov : 38
+  const city = useMemo(() => getCityPreset({ minX, maxX, minZ, maxZ }, aspect, fov), [minX, maxX, minZ, maxZ, aspect, fov])
+  const maximumDistance = Math.max(65, new Vector3(...city.position).distanceTo(new Vector3(...city.target)) * 1.35)
+
   useEffect(() => {
-    const selected = junctions.find((junction) => junction.id === selectedJunctionId)
-    let cameraPosition: [number, number, number] = [2, 34, 24]
-    let target: [number, number, number] = [0, 0, 0]
-    if (mode === 'junction' && selected) { cameraPosition = [selected.x + 9, 14, selected.z + 9]; target = [selected.x, 0, selected.z] }
-    if (mode === 'building') { cameraPosition = [2, 26, 18]; target = [0, 0, 2] }
-    if (mode === 'followVehicle') {
-      if (selected) { cameraPosition = [selected.x + 9, 14, selected.z + 9]; target = [selected.x, 0, selected.z] }
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const update = () => { reducedMotion.current = preference.matches }
+    update()
+    preference.addEventListener('change', update)
+    return () => preference.removeEventListener('change', update)
+  }, [])
+
+  const moveTo = useCallback((position: Vector3, target: Vector3, kind: Transition['kind'], immediate = false) => {
+    const orbit = controls.current
+    if (!orbit) return
+    // Flush any drag inertia before a preset so two animations do not compete.
+    orbit.enableDamping = false
+    orbit.update()
+    orbit.enableDamping = true
+    if (reducedMotion.current || immediate) {
+      transition.current = null
+      camera.position.copy(position)
+      orbit.target.copy(target)
+      orbit.update()
+      return
     }
-    if (mode === 'localTwin') { cameraPosition = [8, 12, 6]; target = [4, 0, -2] }
-    camera.position.set(...cameraPosition)
-    controls.current?.target.set(...target)
-    controls.current?.update()
-  }, [camera, junctions, mode, resetSignal, selectedJunctionId])
+    transition.current = {
+      fromPosition: camera.position.clone(), toPosition: position,
+      fromTarget: orbit.target.clone(), toTarget: target,
+      elapsed: 0, duration: kind === 'zoom' ? .22 : .8, kind,
+    }
+  }, [camera])
+
+  const previousView = useRef<{ mode: ViewMode; resetSignal: number; focusSignal: number; selectedX?: number; selectedZ?: number; followedX?: number; followedZ?: number; city: typeof city } | null>(null)
+  const selectedX = selected?.x
+  const selectedZ = selected?.z
+  const followedX = followed?.x
+  const followedZ = followed?.z
   useEffect(() => {
-    if (mode !== 'followVehicle' || !followed) return
-    camera.position.set(followed.x + 4, 7, followed.z + 4)
-    controls.current?.target.set(followed.x, 0, followed.z)
-    controls.current?.update()
-  }, [camera, followed, mode, resetSignal])
-  return <OrbitControls ref={controls} makeDefault enableDamping dampingFactor={.07} minDistance={6} maxDistance={58} maxPolarAngle={Math.PI / 2.05} target={[0, 0, 0]} />
+    const previous = previousView.current
+    const reset = previous !== null && previous.resetSignal !== resetSignal
+    const newFocus = previous?.focusSignal !== focusSignal
+    const junctionChanged = mode === 'junction' && (previous?.selectedX !== selectedX || previous?.selectedZ !== selectedZ)
+    const vehicleChanged = mode === 'followVehicle' && (previous?.followedX !== followedX || previous?.followedZ !== followedZ)
+    const fitResize = mode === 'city' && previous?.city !== city && !manuallyMoved.current
+    previousView.current = { mode, resetSignal, focusSignal, selectedX, selectedZ, followedX, followedZ, city }
+    if (previous && !reset && !newFocus && !junctionChanged && !vehicleChanged && !fitResize && previous.mode === mode) return
+    manuallyMoved.current = false
+    const preset = getCameraPreset(reset ? 'city' : mode, city,
+      selectedX === undefined || selectedZ === undefined ? undefined : { x: selectedX, z: selectedZ },
+      followedX === undefined || followedZ === undefined ? undefined : { x: followedX, z: followedZ })
+    moveTo(new Vector3(...preset.position), new Vector3(...preset.target), 'preset', previous === null)
+  }, [city, mode, selectedX, selectedZ, followedX, followedZ, resetSignal, focusSignal, moveTo])
+
+  const zoomBy = useCallback((scale: number) => {
+    const orbit = controls.current
+    if (!orbit) return
+    manuallyMoved.current = true
+    const pending = transition.current?.kind === 'zoom' ? transition.current.toPosition : camera.position
+    const offset = pending.clone().sub(orbit.target)
+    const distance = clampCameraDistance(offset.length() * scale, maximumDistance)
+    moveTo(offset.setLength(distance).add(orbit.target), orbit.target.clone(), 'zoom')
+  }, [camera, maximumDistance, moveTo])
+
+  const lastZoomSequence = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    // Sequence zero is the UI's initial idle request, not a zoom command.
+    if (!zoomRequest || zoomRequest.sequence === 0 || zoomRequest.sequence === lastZoomSequence.current) return
+    lastZoomSequence.current = zoomRequest.sequence
+    zoomBy(zoomRequest.direction === 1 ? .8 : 1.25)
+  }, [zoomRequest, zoomBy])
+
+  useEffect(() => {
+    const canvas = gl.domElement
+    const wheel = (event: WheelEvent) => {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      const pixels = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? size.height : 1)
+      zoomBy(Math.exp(Math.max(-.3, Math.min(.3, pixels * .0015))))
+    }
+    // Native OrbitControls dolly is immediate; use the same finite transition as +/-.
+    canvas.addEventListener('wheel', wheel, { capture: true, passive: false })
+    return () => canvas.removeEventListener('wheel', wheel, true)
+  }, [gl, size.height, zoomBy])
+
+  useFrame((_, delta) => {
+    const motion = transition.current
+    const orbit = controls.current
+    if (!motion || !orbit) return
+    motion.elapsed += Math.min(delta, .05)
+    const progress = reducedMotion.current ? 1 : Math.min(1, motion.elapsed / motion.duration)
+    const eased = progress * progress * (3 - 2 * progress)
+    camera.position.lerpVectors(motion.fromPosition, motion.toPosition, eased)
+    orbit.target.lerpVectors(motion.fromTarget, motion.toTarget, eased)
+    orbit.update()
+    if (progress === 1) transition.current = null
+  })
+
+  const constrainPan = useCallback(() => {
+    const orbit = controls.current
+    if (!orbit) return
+    const bounded = clampPanTarget(orbit.target.x, orbit.target.z)
+    camera.position.set(camera.position.x + bounded.x - orbit.target.x, camera.position.y, camera.position.z + bounded.z - orbit.target.z)
+    orbit.target.set(bounded.x, orbit.target.y, bounded.z)
+  }, [camera])
+
+  // Attach to the canvas, not R3F's event wrapper: Html label presses must not start an orbit.
+  return <OrbitControls ref={controls} domElement={gl.domElement} makeDefault enableDamping dampingFactor={.09}
+    enablePan enableRotate enableZoom screenSpacePanning={false} panSpeed={.75} rotateSpeed={.65} zoomSpeed={.65}
+    minDistance={MIN_CAMERA_DISTANCE} maxDistance={maximumDistance} minPolarAngle={.12} maxPolarAngle={MAX_POLAR_ANGLE}
+    mouseButtons={{ LEFT: panMode ? MOUSE.PAN : MOUSE.ROTATE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN }} touches={{ ONE: panMode ? TOUCH.PAN : TOUCH.ROTATE, TWO: TOUCH.DOLLY_PAN }}
+    onStart={() => { transition.current = null; manuallyMoved.current = true }} onChange={constrainPan} />
 }

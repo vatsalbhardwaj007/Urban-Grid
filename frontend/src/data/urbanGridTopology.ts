@@ -17,7 +17,7 @@ export const urbanGridTopology: NetworkConfig = {
   ],
   buildings,
   signalDefinitions: [
-    { id: 'signal-I1', junctionId: 'I1', offset: [1.6, 1.6], orientation: 0 }, { id: 'signal-I2', junctionId: 'I2', offset: [-1.6, 1.6], orientation: Math.PI },
-    { id: 'signal-I3', junctionId: 'I3', offset: [1.6, -1.6], orientation: 0 }, { id: 'signal-I4', junctionId: 'I4', offset: [-1.6, -1.6], orientation: Math.PI },
+    { id: 'signal-I1', junctionId: 'I1', offset: [2.85, 2.85], orientation: Math.PI / 4 }, { id: 'signal-I2', junctionId: 'I2', offset: [2.85, 2.85], orientation: Math.PI / 4 },
+    { id: 'signal-I3', junctionId: 'I3', offset: [2.85, 2.85], orientation: Math.PI / 4 }, { id: 'signal-I4', junctionId: 'I4', offset: [2.85, 2.85], orientation: Math.PI / 4 },
   ],
 }

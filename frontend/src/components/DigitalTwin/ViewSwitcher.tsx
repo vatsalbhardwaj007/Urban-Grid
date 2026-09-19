@@ -1,3 +1,11 @@
+import { viewModes } from '../../data/viewModes'
 import type { ViewMode } from '../../types/digitalTwin'
-const views: { id: ViewMode; label: string; icon: string }[] = [{id:'city',label:'City View',icon:'▧'}, {id:'junction',label:'Junction View',icon:'⌘'}, {id:'building',label:'Building View',icon:'▥'}, {id:'followVehicle',label:'Follow Vehicle',icon:'▱'}, {id:'localTwin',label:'Local Twin',icon:'◎'}]
-export function ViewSwitcher({ viewMode, onModeChange }: { viewMode: ViewMode; onModeChange: (view: ViewMode) => void }) { return <nav className="view-switcher">{views.map((view) => <button key={view.id} className={`view-tab ${viewMode === view.id ? 'active' : ''}`} onClick={() => onModeChange(view.id)}><i>{view.icon}</i>{view.label}</button>)}</nav> }
+import { Icon } from '../Icon'
+
+export function ViewSwitcher({ viewMode, onModeChange }: { viewMode: ViewMode; onModeChange: (view: ViewMode) => void }) {
+  return <nav className="view-switcher" aria-label="Camera views">{viewModes.map((view) =>
+    <button key={view.id} className={`view-tab ${viewMode === view.id ? 'active' : ''}`} aria-pressed={viewMode === view.id} disabled={view.disabled} title={view.description} onClick={() => onModeChange(view.id)}>
+      <Icon name={view.id} /><span>{view.label}</span>{view.disabled && <small>UNAVAILABLE</small>}
+    </button>,
+  )}</nav>
+}

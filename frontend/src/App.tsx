@@ -1,38 +1,71 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { DigitalTwinScene } from './components/DigitalTwin/DigitalTwinScene'
 import { ViewSwitcher } from './components/DigitalTwin/ViewSwitcher'
 import { ContextPanel } from './components/layout/ContextPanel'
 import { ControlSidebar } from './components/layout/ControlSidebar'
 import { TopBar } from './components/layout/TopBar'
+import { Icon } from './components/Icon'
 import { urbanGridTopology } from './data/urbanGridTopology'
+import { viewModes } from './data/viewModes'
 import { TrafficProvider, useTrafficStore } from './state/trafficStore'
 import type { BuildingStyle, ViewMode } from './types/digitalTwin'
+import type { TrafficSnapshot } from './types/traffic'
 import './App.css'
+
+const emptyTraffic: TrafficSnapshot = {}
 
 function UrbanGridDashboard() {
   const [viewMode, setViewMode] = useState<ViewMode>('city')
   const [selectedJunctionId, setSelectedJunctionId] = useState('I1')
   const [buildingStyle, setBuildingStyle] = useState<BuildingStyle>('solid')
+  const [showBuildings, setShowBuildings] = useState(true)
+  const [panMode, setPanMode] = useState(false)
   const [resetSignal, setResetSignal] = useState(0)
+  const [focusSignal, setFocusSignal] = useState(0)
+  const [zoomRequest, setZoomRequest] = useState<{direction: 1 | -1; sequence: number}>({direction: 1, sequence: 0})
   const traffic = useTrafficStore()
   const selectedJunction = urbanGridTopology.junctions.find((junction) => junction.id === selectedJunctionId) ?? urbanGridTopology.junctions[0]
-  const renderTraffic = traffic.status === 'disconnected' && traffic.health?.simulation_connected !== true ? {} : traffic.trafficByIntersection
+  const renderTraffic = traffic.status === 'disconnected' && traffic.health?.simulation_connected !== true ? emptyTraffic : traffic.trafficByIntersection
+  const observedCount = Object.keys(renderTraffic).length
+  const totalQueue = Object.values(renderTraffic).reduce((sum, state) => sum + state.total_queue, 0)
+  const resetCamera = useCallback(() => { setViewMode('city'); setResetSignal((value) => value + 1) }, [])
+  const selectJunction = useCallback((id: string) => { setSelectedJunctionId(id); setViewMode('junction'); setFocusSignal((value) => value + 1) }, [])
+  const changeMode = useCallback((mode: ViewMode) => {
+    if (mode === 'followVehicle') return
+    if (mode === 'city') { resetCamera(); return }
+    setViewMode(mode)
+    setFocusSignal((value) => value + 1)
+  }, [resetCamera])
+  const zoom = (direction: 1 | -1) => setZoomRequest((previous) => ({direction, sequence: previous.sequence + 1}))
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLElement && (event.target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(event.target.tagName))) return
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+      if (event.key.toLowerCase() === 'r') resetCamera()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [resetCamera])
 
   return <main className="app-shell">
     <TopBar status={traffic.status} health={traffic.health} lastReceivedAt={traffic.lastReceivedAt} />
     <div className="workspace">
-      <ControlSidebar viewMode={viewMode} selectedJunctionId={selectedJunctionId} onModeChange={setViewMode} onSelectJunction={setSelectedJunctionId} onStepAiLoop={traffic.stepAiLoop} stepDisabled={traffic.health?.simulation_connected !== true} loopStatus={traffic.loopStatus} />
+      <ControlSidebar viewMode={viewMode} selectedJunctionId={selectedJunctionId} onModeChange={changeMode} onSelectJunction={selectJunction} onStepAiLoop={traffic.stepAiLoop} stepDisabled={traffic.health?.simulation_connected !== true} loopStatus={traffic.loopStatus} trafficByIntersection={renderTraffic} />
       <section className="twin-area" aria-label="Urban traffic digital twin">
-        <header className="twin-header"><div className="eyebrow"><span className="live-dot" /> {traffic.status === 'connected' ? 'LIVE DIGITAL TWIN' : 'TRAFFIC TWIN'} <span>/</span> URBAN GRID <span>/</span> M2 STREAM</div><div className="updated">{traffic.lastReceivedAt ? `Updated ${new Date(traffic.lastReceivedAt).toLocaleTimeString()}` : 'Awaiting backend data'} <button onClick={() => setResetSignal((signal) => signal + 1)} title="Reset camera">⌗</button></div></header>
+        <header className="twin-header"><div><div className="eyebrow">DIGITAL TWIN <span>/</span> URBAN DISTRICT</div><h2>City traffic monitor</h2></div><span className="scene-mode">3D <span>{traffic.status === 'connected' ? 'LIVE VIEW' : 'LAST SNAPSHOT'}</span></span></header>
+        <div className="network-summary"><span><i className="summary-dot" /><b>{observedCount}</b> / 4 {traffic.status === 'connected' ? 'nodes reporting' : 'nodes received'}</span><span><b>{observedCount ? totalQueue : '—'}</b> queued vehicles</span><span className="summary-mode">{traffic.loopStatus?.mode ?? 'AWAITING BACKEND'}</span></div>
         <div className="scene-wrap">
-          {viewMode === 'building' && <div className="style-toggle" aria-label="Building render style"><button className={buildingStyle === 'solid' ? 'active' : ''} onClick={() => setBuildingStyle('solid')}>Solid</button><button className={buildingStyle === 'wireframe' ? 'active' : ''} onClick={() => setBuildingStyle('wireframe')}>Wireframe</button></div>}
-          <DigitalTwinScene network={urbanGridTopology} trafficByIntersection={renderTraffic} viewMode={viewMode} buildingStyle={buildingStyle} selectedJunctionId={selectedJunctionId} followedVehicleId={null} onSelectJunction={setSelectedJunctionId} resetSignal={resetSignal} />
-          <div className="scene-compass"><b>N</b><span>▲</span><small>0°</small></div><div className="scene-readout"><span>{traffic.status.toUpperCase()}</span><span>{traffic.malformedEvents ? `⚠ ${traffic.malformedEvents} invalid event${traffic.malformedEvents === 1 ? '' : 's'}` : '◉ M2 telemetry'}</span></div><button className="camera-reset" onClick={() => setResetSignal((signal) => signal + 1)}>↻ Reset camera</button><div className="scene-legend"><span><i className="flowing" /> Flowing</span><span><i className="moderate" /> Moderate</span><span><i className="critical" /> Critical</span></div>
+          <DigitalTwinScene network={urbanGridTopology} trafficByIntersection={renderTraffic} viewMode={viewMode} buildingStyle={buildingStyle} showBuildings={showBuildings} panMode={panMode} selectedJunctionId={selectedJunctionId} followedVehicleId={null} onSelectJunction={selectJunction} resetSignal={resetSignal} focusSignal={focusSignal} zoomRequest={zoomRequest} />
+          <div className="scene-caption"><span className="panel-label">{viewModes.find((view) => view.id === viewMode)?.label.toUpperCase()}</span><span>Schematic city · aggregate traffic</span></div>
+          {viewMode === 'building' && <div className="style-toggle" aria-label="Building render style"><button aria-pressed={buildingStyle === 'solid'} className={buildingStyle === 'solid' ? 'active' : ''} onClick={() => setBuildingStyle('solid')}>Solid</button><button aria-pressed={buildingStyle === 'wireframe'} className={buildingStyle === 'wireframe' ? 'active' : ''} onClick={() => setBuildingStyle('wireframe')}>Wireframe</button></div>}
+          <div className="camera-toolbar" role="group" aria-label="Camera controls"><button aria-label="Zoom in" title="Zoom in · mouse wheel up" onClick={() => zoom(1)}><Icon name="plus" /></button><button aria-label="Zoom out" title="Zoom out · mouse wheel down" onClick={() => zoom(-1)}><Icon name="minus" /></button><div className="toolbar-divider"/><button aria-label="Pan camera" aria-pressed={panMode} title={panMode ? 'Pan enabled · click to return to orbit' : 'Pan with left-drag · right-drag always pans'} onClick={() => setPanMode((value) => !value)}><Icon name="localTwin" /></button><button aria-label="Reset camera" title="Reset camera to City View · R" onClick={resetCamera}><Icon name="reset" /></button><button aria-label="Show buildings" aria-pressed={showBuildings} title="Toggle static building layer" onClick={() => setShowBuildings((value) => !value)}><Icon name="layers" /></button></div>
+          <div className="scene-legend" aria-label="Traffic legend"><span className="legend-heading">CONGESTION</span><span><i className="flowing"/>Low</span><span><i className="moderate"/>Moderate</span><span><i className="critical"/>High</span><span><i className="unknown"/>No data</span></div>
+          <div className="scene-instructions">Drag to {panMode ? 'pan' : 'orbit'} <span>·</span> Right-drag to pan <span>·</span> Scroll to zoom</div>
         </div>
-        <ViewSwitcher viewMode={viewMode} onModeChange={setViewMode} />
-        <footer className="hotkeys"><span><kbd>SPACE</kbd> simulation controls</span><span><kbd>R</kbd> reset camera</span><span><kbd>?</kbd> shortcuts</span><span>{traffic.error ?? 'Canonical M2 traffic telemetry'}</span></footer>
+        <ViewSwitcher viewMode={viewMode} onModeChange={changeMode} />
+        <footer className="telemetry-footer"><span className={`feed-state connection-${traffic.status}`}><i/>{traffic.status.toUpperCase()}</span><span className="footer-message" title={traffic.error ?? undefined}>{traffic.error ?? (traffic.malformedEvents ? `${traffic.malformedEvents} invalid events ignored` : 'SUMO → TRAFFIC STATE → DIGITAL TWIN')}</span><span className="reset-shortcut"><kbd>R</kbd> Reset view</span></footer>
       </section>
-      <ContextPanel junction={selectedJunction} traffic={renderTraffic[selectedJunction.id]} allTraffic={renderTraffic} availableJunctions={urbanGridTopology.junctions} loopStatus={traffic.loopStatus} latestIntervention={traffic.latestIntervention} />
+      <ContextPanel junction={selectedJunction} traffic={renderTraffic[selectedJunction.id]} allTraffic={renderTraffic} availableJunctions={urbanGridTopology.junctions} loopStatus={traffic.loopStatus} latestIntervention={traffic.latestIntervention} status={traffic.status} onSelectJunction={selectJunction} />
     </div>
   </main>
 }

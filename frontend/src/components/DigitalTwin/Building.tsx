@@ -1,5 +1,5 @@
-import { memo, useEffect, useMemo } from 'react'
-import { BoxGeometry, EdgesGeometry, LineSegments, MeshBasicMaterial } from 'three'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { BoxGeometry, Color, EdgesGeometry, InstancedMesh, LineBasicMaterial, LineSegments, Object3D } from 'three'
 import type { Building as BuildingDefinition, BuildingStyle } from '../../types/digitalTwin'
 
 function BuildingEdges({ width, height, depth }: Pick<BuildingDefinition, 'width' | 'height' | 'depth'>) {
@@ -7,29 +7,58 @@ function BuildingEdges({ width, height, depth }: Pick<BuildingDefinition, 'width
     const box = new BoxGeometry(width, height, depth)
     const geometry = new EdgesGeometry(box)
     box.dispose()
-    return new LineSegments(geometry, new MeshBasicMaterial({ color: '#4dd9e8', transparent: true, opacity: .75 }))
+    return new LineSegments(geometry, new LineBasicMaterial({ color: '#67b7c5', transparent: true, opacity: .7 }))
   }, [width, height, depth])
-  useEffect(() => () => { line.geometry.dispose(); (line.material as MeshBasicMaterial).dispose() }, [line])
+  useEffect(() => () => { line.geometry.dispose(); line.material.dispose() }, [line])
   return <primitive object={line} dispose={null} />
 }
 
+const Windows = memo(function Windows({ width, height, depth }: Pick<BuildingDefinition, 'width' | 'height' | 'depth'>) {
+  const mesh = useRef<InstancedMesh>(null)
+  const rows = Math.max(2, Math.floor(height / .8))
+  const columns = 4
+  const count = rows * columns * 4
+  useLayoutEffect(() => {
+    const object = new Object3D()
+    const color = new Color()
+    for (let side = 0; side < 4; side += 1) {
+      const span = side % 2 ? depth : width
+      const edge = side % 2 ? width : depth
+      const angle = side * Math.PI / 2
+      for (let row = 0; row < rows; row += 1) {
+        for (let column = 0; column < columns; column += 1) {
+          const localX = (-.36 + column * .24) * span
+          const index = side * rows * columns + row * columns + column
+          object.position.set(Math.cos(angle) * localX + Math.sin(angle) * (edge / 2 + .012), -height / 2 + .6 + row * (height - .95) / rows, -Math.sin(angle) * localX + Math.cos(angle) * (edge / 2 + .012))
+          object.rotation.y = angle
+          object.scale.set(span * .13, .37, .025)
+          object.updateMatrix()
+          mesh.current?.setMatrixAt(index, object.matrix)
+          mesh.current?.setColorAt(index, color.set(index % 11 === 0 ? '#8b9b8d' : index % 4 === 0 ? '#375763' : '#1b303a'))
+        }
+      }
+    }
+    if (mesh.current) {
+      mesh.current.instanceMatrix.needsUpdate = true
+      if (mesh.current.instanceColor) mesh.current.instanceColor.needsUpdate = true
+    }
+  }, [width, height, depth, rows])
+  return <instancedMesh ref={mesh} args={[undefined, undefined, count]}><boxGeometry args={[1, 1, 1]} /><meshStandardMaterial roughness={.6} metalness={.15} /></instancedMesh>
+})
+
 export const Building = memo(function Building({ building, style }: { building: BuildingDefinition; style: BuildingStyle }) {
   const { variant, width, height, depth, x, z } = building
-  const bodyColor = variant === 'tower' ? '#162e38' : variant === 'midrise' ? '#172c34' : variant === 'commercial' ? '#1a2e35' : '#182b33'
+  const bodyColor = variant === 'tower' ? '#435561' : variant === 'midrise' ? '#4b6068' : variant === 'commercial' ? '#586968' : '#526167'
   const wireframe = style === 'wireframe'
-  const floorCount = Math.floor(height / 1.4)
-  return <group position={[x, height / 2, z]}>
-    <mesh castShadow><boxGeometry args={[width, height, depth]} /><meshStandardMaterial color={bodyColor} metalness={wireframe ? .6 : .35} roughness={wireframe ? .3 : .68} transparent opacity={wireframe ? .28 : 1} /></mesh>
-    {wireframe && <BuildingEdges width={width} height={height} depth={depth} />}
-    {wireframe && Array.from({ length: floorCount }).map((_, index) => <mesh key={index} position={[0, -height / 2 + 1.4 * (index + 1), 0]}><boxGeometry args={[width + .02, .02, depth + .02]} /><meshBasicMaterial color="#1e8a9a" transparent opacity={.4} /></mesh>)}
-    {!wireframe && <>
-      <mesh position={[0, height / 2 + .045, 0]}><boxGeometry args={[width + .18, .09, depth + .18]} /><meshBasicMaterial color="#2c6e78" /></mesh>
-      {variant === 'tower' && <>{[-width * .25, 0, width * .25].map((wx, index) => <mesh key={index} position={[wx, 0, depth / 2 + .01]}><boxGeometry args={[width * .18, height * .78, .02]} /><meshBasicMaterial color="#2a8f9e" transparent opacity={.22} /></mesh>)}<mesh position={[0, height / 2 + .6, 0]}><boxGeometry args={[.08, 1.2, .08]} /><meshBasicMaterial color="#2a5a63" /></mesh></>}
-      {variant === 'midrise' && Array.from({ length: Math.floor(height / 1.2) }).map((_, index) => <mesh key={index} position={[0, -height / 2 + .8 + index * 1.2, depth / 2 + .01]}><boxGeometry args={[width * .8, .28, .02]} /><meshBasicMaterial color="#34a8ba" transparent opacity={.18} /></mesh>)}
-      {variant === 'commercial' && <mesh position={[0, -height / 2 + .5, depth / 2 + .3]}><boxGeometry args={[width + .4, .12, .6]} /><meshBasicMaterial color="#1e5a65" /></mesh>}
-      {variant === 'corner' && <mesh position={[width * .22, .05, depth * .22]} rotation={[0, Math.PI / 4, 0]}><boxGeometry args={[width * .55, height + .1, depth * .55]} /><meshStandardMaterial color="#131f28" metalness={.4} roughness={.7} transparent opacity={.65} /></mesh>}
+  return <group position={[x, height / 2 + .12, z]}>
+    <mesh><boxGeometry args={[width, height, depth]} /><meshStandardMaterial color={bodyColor} roughness={.88} metalness={.08} transparent={wireframe} opacity={wireframe ? .18 : 1} /></mesh>
+    {wireframe ? <BuildingEdges width={width} height={height} depth={depth} /> : <>
+      <Windows width={width} height={height} depth={depth} />
+      <mesh position={[0, height / 2 + .06, 0]}><boxGeometry args={[width + .13, .12, depth + .13]} /><meshStandardMaterial color="#7c8788" roughness={1} /></mesh>
+      <mesh position={[0, height / 2 + .13, 0]}><boxGeometry args={[width - .25, .035, depth - .25]} /><meshStandardMaterial color="#526268" roughness={1} /></mesh>
+      <mesh position={[width * .16, height / 2 + .33, -depth * .12]}><boxGeometry args={[width * .33, .38, depth * .3]} /><meshStandardMaterial color="#65777c" roughness={.9} /></mesh>
     </>}
-    <mesh position={[0, height * .1, depth / 2 + .012]}><planeGeometry args={[width * .68, height * .58]} /><meshBasicMaterial color="#3dd8e8" transparent opacity={wireframe ? .06 : .09} /></mesh>
+    <mesh position={[0, -height / 2 - .055, 0]}><boxGeometry args={[width + .5, .13, depth + .5]} /><meshStandardMaterial color="#435259" roughness={1} /></mesh>
   </group>
 })
 
