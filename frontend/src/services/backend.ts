@@ -36,3 +36,8 @@ export async function getIntersections() { const data = await request('/api/inte
 export async function getTrafficSnapshot(): Promise<TrafficSnapshot> { const data = await request('/api/traffic-state'); if (!isTrafficSnapshot(data)) throw new BackendRequestError('Unexpected /api/traffic-state response.'); return data }
 export async function getControlLoopStatus() { const data = await request('/api/control/loop/status'); if (!isControlLoopStatus(data)) throw new BackendRequestError('Unexpected /api/control/loop/status response.'); return data }
 export async function stepControlLoop() { const data = await request('/api/control/loop/step', { method: 'POST' }); if (!isControlCycleResult(data)) throw new BackendRequestError('Unexpected /api/control/loop/step response.'); return data }
+export async function setControlMode(mode: 'AUTO' | 'MANUAL' | 'EMERGENCY') { const data = await request('/api/control/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) }); return data }
+export async function stepSimulation(steps = 1) { const data = await request('/api/simulation/step', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ steps }) }); if (!isTrafficSnapshot(data)) throw new BackendRequestError('Unexpected /api/simulation/step response.'); return data }
+export async function applySignalAction(action: unknown) { return request('/api/control/signal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(action) }) }
+export async function applyRouteAction(action: unknown) { return request('/api/control/route', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(action) }) }
+

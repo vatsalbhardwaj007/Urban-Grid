@@ -1,4 +1,4 @@
-export type ViewMode = 'city' | 'junction' | 'building' | 'followVehicle' | 'localTwin'
+export type ViewMode = 'city' | 'topDown' | 'junction' | 'building' | 'followVehicle' | 'localTwin'
 export type BuildingStyle = 'solid' | 'wireframe'
 export type TrafficStatus = 'flowing' | 'moderate' | 'critical'
 export type TrafficVisualStatus = TrafficStatus | 'unknown'

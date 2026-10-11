@@ -160,3 +160,9 @@ frontend/dist/
 
 # macOS
 .DS_Store
+
+# Blender binaries & downloads
+tools/blender/blender-*/
+tools/blender/blender_bin/
+tools/blender/*.zip
+*.blend1
