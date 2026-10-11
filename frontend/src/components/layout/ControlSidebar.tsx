@@ -6,14 +6,14 @@ import type { ControlLoopStatus, TrafficSnapshot } from '../../types/traffic'
 import type { ViewMode } from '../../types/digitalTwin'
 import { Icon } from '../Icon'
 
-type Props = { viewMode: ViewMode; selectedJunctionId: string; onModeChange: (mode: ViewMode) => void; onSelectJunction: (id: string) => void; onStepAiLoop: () => Promise<void>; stepDisabled: boolean; loopStatus: ControlLoopStatus | null; trafficByIntersection: TrafficSnapshot }
+type Props = { viewMode: ViewMode; selectedJunctionId: string; onModeChange: (mode: ViewMode) => void; onSelectJunction: (id: string) => void; onStepAiLoop: () => Promise<void>; stepDisabled: boolean; loopStatus: ControlLoopStatus | null; trafficByIntersection: TrafficSnapshot; followVehicleAvailable: boolean }
 
-export function ControlSidebar({ viewMode, selectedJunctionId, onModeChange, onSelectJunction, onStepAiLoop, stepDisabled, loopStatus, trafficByIntersection }: Props) {
+export function ControlSidebar({ viewMode, selectedJunctionId, onModeChange, onSelectJunction, onStepAiLoop, stepDisabled, loopStatus, trafficByIntersection, followVehicleAvailable }: Props) {
   const [stepping, setStepping] = useState(false)
   const step = async () => { setStepping(true); try { await onStepAiLoop() } finally { setStepping(false) } }
   return <aside className="control-sidebar" aria-label="Monitoring controls">
     <div className="sidebar-heading"><span className="panel-label">WORKSPACE</span><span className="workspace-number">01</span></div>
-    <div className="mode-list">{viewModes.map((mode) => <button key={mode.id} className={`mode-button ${viewMode === mode.id ? 'active' : ''}`} aria-pressed={viewMode === mode.id} disabled={mode.disabled} title={mode.description} onClick={() => onModeChange(mode.id)}><Icon name={mode.id} /><span>{mode.label}</span>{mode.disabled && <span className="unavailable-mark">—</span>}</button>)}</div>
+    <div className="mode-list">{viewModes.map((mode) => { const disabled = mode.id === 'followVehicle' && !followVehicleAvailable; return <button key={mode.id} className={`mode-button ${viewMode === mode.id ? 'active' : ''}`} aria-pressed={viewMode === mode.id} disabled={disabled} title={disabled ? 'Select a real SUMO vehicle in the scene first' : mode.description} onClick={() => onModeChange(mode.id)}><Icon name={mode.id} /><span>{mode.label}</span>{disabled && <span className="unavailable-mark">—</span>}</button> })}</div>
     <div className="side-rule" />
     <div className="sidebar-heading"><span className="panel-label">MONITORED NETWORK</span><span className="count-tag">04</span></div>
     <div className="junction-list">{urbanGridTopology.junctions.map((junction) => {

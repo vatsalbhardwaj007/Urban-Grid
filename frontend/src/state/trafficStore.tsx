@@ -1,9 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react'
 import { CANONICAL_INTERSECTION_IDS } from '../data/urbanGridTopology'
-import { getControlLoopStatus, getHealth, getIntersections, getTrafficSnapshot, stepControlLoop } from '../services/backend'
+import { getControlLoopStatus, getHealth, getIntersections, getTrafficSnapshot, getVehicleSnapshot, stepControlLoop } from '../services/backend'
 import { openTrafficSocket } from '../services/trafficSocket'
 import { isSignalActuationResult } from '../types/traffic'
-import type { ControlLoopStatus, HealthResponse, SignalActuationResult, TrafficSnapshot, TrafficState } from '../types/traffic'
+import type { ControlLoopStatus, HealthResponse, SignalActuationResult, TrafficSnapshot, TrafficState, VehicleSnapshot, VehicleTrack } from '../types/traffic'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'reconnecting'
 export type TrafficStoreState = {
@@ -11,6 +11,12 @@ export type TrafficStoreState = {
   health: HealthResponse | null
   intersectionIds: string[]
   trafficByIntersection: TrafficSnapshot
+  /** Latest authoritative real SUMO fleet, keyed by stable vehicle ID. */
+  vehiclesById: Record<string, VehicleTrack>
+  vehicleSnapshotTimestamp: number | null
+  vehicleLastReceivedAt: number | null
+  /** Local revision lets reconnect REST resync avoid replacing a newer WS fleet. */
+  vehicleRevision: number
   loopStatus: ControlLoopStatus | null
   latestIntervention: SignalActuationResult | null
   /** Browser receipt time in epoch milliseconds. */
@@ -26,8 +32,8 @@ export type TrafficStoreState = {
 }
 
 type Action =
-  | { type: 'BOOTSTRAP'; health: HealthResponse; intersections: string[]; snapshot: TrafficSnapshot; loopStatus: ControlLoopStatus | null }
-  | { type: 'RESYNC'; health: HealthResponse; snapshot: TrafficSnapshot; loopStatus: ControlLoopStatus }
+  | { type: 'BOOTSTRAP'; health: HealthResponse; intersections: string[]; snapshot: TrafficSnapshot; vehicles: VehicleSnapshot; loopStatus: ControlLoopStatus | null }
+  | { type: 'RESYNC'; health: HealthResponse; snapshot: TrafficSnapshot; vehicles: VehicleSnapshot; loopStatus: ControlLoopStatus; expectedVehicleRevision?: number }
   | { type: 'UNAVAILABLE'; error: string; health?: HealthResponse }
   | { type: 'HEALTH'; health: HealthResponse }
   | { type: 'SOCKET_OPEN' }
@@ -35,6 +41,7 @@ type Action =
   | { type: 'SOCKET_RECONNECTING' }
   | { type: 'PONG' }
   | { type: 'UPSERT'; traffic: TrafficState }
+  | { type: 'VEHICLE_SNAPSHOT'; snapshot: VehicleSnapshot }
   | { type: 'POLL_SESSION_START'; generation: number }
   | { type: 'POLL_INVALIDATED'; generation: number }
   | { type: 'POLL_SUCCESS'; snapshot: TrafficSnapshot; generation: number }
@@ -44,7 +51,7 @@ type Action =
   | { type: 'LOOP_ERROR'; error: string }
 
 // oxlint-disable-next-line react/only-export-components
-export const initialTrafficStoreState: TrafficStoreState = { status: 'connecting', health: null, intersectionIds: [], trafficByIntersection: {}, loopStatus: null, latestIntervention: null, lastReceivedAt: null, lastSimulationTimestamp: null, lastHeartbeatAt: null, error: null, malformedEvents: 0, unknownEvents: 0, pollingGeneration: 0 }
+export const initialTrafficStoreState: TrafficStoreState = { status: 'connecting', health: null, intersectionIds: [], trafficByIntersection: {}, vehiclesById: {}, vehicleSnapshotTimestamp: null, vehicleLastReceivedAt: null, vehicleRevision: 0, loopStatus: null, latestIntervention: null, lastReceivedAt: null, lastSimulationTimestamp: null, lastHeartbeatAt: null, error: null, malformedEvents: 0, unknownEvents: 0, pollingGeneration: 0 }
 const receiptNow = () => Date.now()
 
 function latestSimulationTimestamp(snapshot: TrafficSnapshot) {
@@ -63,6 +70,22 @@ function replaceSnapshot(state: TrafficStoreState, snapshot: TrafficSnapshot) {
   return { trafficByIntersection, unknownEvents, lastReceivedAt: Object.keys(trafficByIntersection).length ? receiptNow() : state.lastReceivedAt, lastSimulationTimestamp: latestSimulationTimestamp(trafficByIntersection) }
 }
 
+/** A snapshot is a full authoritative fleet: omitted IDs have left SUMO. */
+function replaceVehicles(state: TrafficStoreState, snapshot: VehicleSnapshot) {
+  const receivedAt = receiptNow()
+  const vehiclesById: Record<string, VehicleTrack> = {}
+  for (const vehicle of snapshot.vehicles) {
+    vehiclesById[vehicle.id] = {
+      vehicle,
+      previous: state.vehiclesById[vehicle.id]?.vehicle ?? vehicle,
+      previousSnapshotTimestamp: state.vehiclesById[vehicle.id]?.snapshotTimestamp ?? snapshot.timestamp,
+      snapshotTimestamp: snapshot.timestamp,
+      receivedAt,
+    }
+  }
+  return { vehiclesById, vehicleSnapshotTimestamp: snapshot.timestamp, vehicleLastReceivedAt: receivedAt }
+}
+
 // oxlint-disable-next-line react/only-export-components
 export function trafficStoreReducer(state: TrafficStoreState, action: Action): TrafficStoreState {
   if (action.type === 'BOOTSTRAP') {
@@ -70,13 +93,16 @@ export function trafficStoreReducer(state: TrafficStoreState, action: Action): T
     const ids = [...new Set(action.intersections.filter((id) => canonicalIds.has(id)))]
     const base = { ...state, health: action.health, intersectionIds: ids, loopStatus: action.loopStatus }
     const replaced = replaceSnapshot(base, action.snapshot)
-    return { ...base, ...replaced, status: action.health.simulation_connected ? 'connecting' : 'disconnected', lastHeartbeatAt: null, error: action.health.simulation_connected ? null : 'SUMO simulation is unavailable.' }
+    return { ...base, ...replaced, ...replaceVehicles(base, action.vehicles), status: action.health.simulation_connected ? 'connecting' : 'disconnected', lastHeartbeatAt: null, error: action.health.simulation_connected ? null : 'SUMO simulation is unavailable.' }
   }
-  if (action.type === 'RESYNC') return { ...state, ...replaceSnapshot(state, action.snapshot), health: action.health, loopStatus: action.loopStatus, error: null }
-  if (action.type === 'UNAVAILABLE') return { ...state, status: 'disconnected', health: action.health ?? state.health, lastHeartbeatAt: null, error: action.error }
+  if (action.type === 'RESYNC') {
+    const vehicleData = action.expectedVehicleRevision === undefined || action.expectedVehicleRevision === state.vehicleRevision ? replaceVehicles(state, action.vehicles) : {}
+    return { ...state, ...replaceSnapshot(state, action.snapshot), ...vehicleData, health: action.health, loopStatus: action.loopStatus, error: null }
+  }
+  if (action.type === 'UNAVAILABLE') return { ...state, status: 'disconnected', health: action.health ?? state.health, vehiclesById: {}, vehicleSnapshotTimestamp: null, vehicleLastReceivedAt: null, lastHeartbeatAt: null, error: action.error }
   if (action.type === 'HEALTH') return { ...state, health: action.health }
   if (action.type === 'SOCKET_OPEN') return { ...state, status: 'connected', lastHeartbeatAt: receiptNow(), error: null }
-  if (action.type === 'SOCKET_CLOSE') return state.status === 'disconnected' ? state : { ...state, status: 'disconnected', lastHeartbeatAt: null, error: 'Live traffic stream disconnected; using REST fallback.' }
+  if (action.type === 'SOCKET_CLOSE') return state.status === 'disconnected' ? state : { ...state, status: 'disconnected', vehiclesById: {}, vehicleSnapshotTimestamp: null, vehicleLastReceivedAt: null, lastHeartbeatAt: null, error: 'Live traffic stream disconnected; using REST fallback.' }
   if (action.type === 'SOCKET_RECONNECTING') return { ...state, status: 'reconnecting', error: 'Reconnecting to live traffic stream.' }
   if (action.type === 'PONG') return { ...state, lastHeartbeatAt: receiptNow() }
   if (action.type === 'MALFORMED') return { ...state, malformedEvents: state.malformedEvents + 1 }
@@ -84,6 +110,9 @@ export function trafficStoreReducer(state: TrafficStoreState, action: Action): T
     const id = action.traffic.intersection_id
     if (!state.intersectionIds.includes(id)) return { ...state, unknownEvents: state.unknownEvents + 1 }
     return { ...state, trafficByIntersection: { ...state.trafficByIntersection, [id]: action.traffic }, lastReceivedAt: receiptNow(), lastSimulationTimestamp: action.traffic.timestamp, lastHeartbeatAt: receiptNow(), status: 'connected', error: null }
+  }
+  if (action.type === 'VEHICLE_SNAPSHOT') {
+    return { ...state, ...replaceVehicles(state, action.snapshot), vehicleRevision: state.vehicleRevision + 1, lastHeartbeatAt: receiptNow(), status: 'connected', error: null }
   }
   if (action.type === 'POLL_SESSION_START') return action.generation > state.pollingGeneration ? { ...state, pollingGeneration: action.generation } : state
   if (action.type === 'POLL_INVALIDATED') return action.generation > state.pollingGeneration ? { ...state, pollingGeneration: action.generation } : state
@@ -180,7 +209,8 @@ export function TrafficProvider({ children }: { children: React.ReactNode }) {
 
     async function resyncAfterReconnect() {
       try {
-        const [health, snapshot, loopStatus] = await Promise.all([getHealth(), getTrafficSnapshot(), getControlLoopStatus()])
+        const expectedVehicleRevision = stateRef.current.vehicleRevision
+        const [health, snapshot, vehicles, loopStatus] = await Promise.all([getHealth(), getTrafficSnapshot(), getVehicleSnapshot(), getControlLoopStatus()])
         if (disposed) return
         if (!health.simulation_connected) {
           reconnectAllowed = false
@@ -189,7 +219,7 @@ export function TrafficProvider({ children }: { children: React.ReactNode }) {
           scheduleBootstrap()
           return
         }
-        dispatch({ type: 'RESYNC', health, snapshot, loopStatus })
+        dispatch({ type: 'RESYNC', health, snapshot, vehicles, loopStatus, expectedVehicleRevision })
       } catch {
         if (!disposed) socket?.close()
       }
@@ -206,6 +236,7 @@ export function TrafficProvider({ children }: { children: React.ReactNode }) {
             if (resyncOnOpen) void resyncAfterReconnect()
           },
           onUpdate: (traffic) => dispatch({ type: 'UPSERT', traffic }),
+          onVehicleSnapshot: (snapshot) => dispatch({ type: 'VEHICLE_SNAPSHOT', snapshot }),
           onPong: () => dispatch({ type: 'PONG' }),
           onMalformed: () => dispatch({ type: 'MALFORMED' }),
           onError: () => undefined,
@@ -222,15 +253,15 @@ export function TrafficProvider({ children }: { children: React.ReactNode }) {
         if (disposed) return
         if (!health.simulation_connected) {
           reconnectAllowed = false
-          dispatch({ type: 'BOOTSTRAP', health, intersections: [], snapshot: {}, loopStatus: null })
+          dispatch({ type: 'BOOTSTRAP', health, intersections: [], snapshot: {}, vehicles: { timestamp: health.simulation_time ?? 0, vehicles: [] }, loopStatus: null })
           socket?.close()
           scheduleBootstrap()
           return
         }
         reconnectAllowed = true
-        const [intersections, snapshot, loopStatus] = await Promise.all([getIntersections(), getTrafficSnapshot(), getControlLoopStatus()])
+        const [intersections, snapshot, vehicles, loopStatus] = await Promise.all([getIntersections(), getTrafficSnapshot(), getVehicleSnapshot(), getControlLoopStatus()])
         if (disposed) return
-        dispatch({ type: 'BOOTSTRAP', health, intersections, snapshot, loopStatus })
+        dispatch({ type: 'BOOTSTRAP', health, intersections, snapshot, vehicles, loopStatus })
         connect(false)
       } catch (error) {
         if (disposed) return

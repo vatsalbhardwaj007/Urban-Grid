@@ -2,14 +2,14 @@ import { OrbitControls } from '@react-three/drei'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { MOUSE, PerspectiveCamera, TOUCH, Vector3 } from 'three'
-import type { ViewMode, VehicleState } from '../../types/digitalTwin'
+import type { ViewMode } from '../../types/digitalTwin'
 import { clampCameraDistance, clampPanTarget, getCameraPreset, getCityBounds, getCityPreset, MAX_POLAR_ANGLE, MIN_CAMERA_DISTANCE } from './cameraPresets'
 
 type Props = {
   mode: ViewMode
   selectedJunctionId: string
   followedVehicleId: string | null
-  vehicles: VehicleState[]
+  vehicles: Array<{ id: string; x: number; z: number }>
   junctions: Array<{ id: string; x: number; z: number }>
   resetSignal: number
   focusSignal?: number

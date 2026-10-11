@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { backendConfig } from '../config/backend'
 import { selectIntersectionVisual } from '../selectors/trafficVisuals'
 import { initialTrafficStoreState, trafficStoreReducer } from '../state/trafficStore'
-import type { TrafficState } from '../types/traffic'
+import type { TrafficState, VehicleSnapshot } from '../types/traffic'
 import { openTrafficSocket } from './trafficSocket'
 
 class SocketHarness {
@@ -24,8 +24,14 @@ function traffic(intersectionId: string, phase: TrafficState['signal_phase'] = '
   }
 }
 
+const emptyVehicleSnapshot: VehicleSnapshot = { timestamp: 0, vehicles: [] }
+
+function vehicleSnapshot(timestamp = 40): VehicleSnapshot {
+  return { timestamp, vehicles: [{ id: 'car-1', x: 250, y: 750, speed: 10, angle: 90, lane_id: 'W_E1_I1_0', road_id: 'W_E1_I1', vehicle_type: 'passenger' }] }
+}
+
 function handlers() {
-  return { onOpen: vi.fn(), onUpdate: vi.fn(), onPong: vi.fn(), onMalformed: vi.fn(), onClose: vi.fn(), onError: vi.fn() }
+  return { onOpen: vi.fn(), onUpdate: vi.fn(), onVehicleSnapshot: vi.fn(), onPong: vi.fn(), onMalformed: vi.fn(), onClose: vi.fn(), onError: vi.fn() }
 }
 
 function receive(socket: WebSocket, data: string) {
@@ -43,6 +49,7 @@ describe('live traffic transport to centralized state', () => {
       health: { status: 'ok', simulation_connected: true, simulation_time: 0 },
       intersections: ids,
       snapshot: {},
+      vehicles: emptyVehicleSnapshot,
       loopStatus: null,
     })
     const callbacks = handlers()
@@ -94,6 +101,15 @@ describe('live traffic transport to centralized state', () => {
     expect(callbacks.onUpdate).not.toHaveBeenCalled()
   })
 
+  it('forwards a validated complete real vehicle snapshot into the fleet store path', () => {
+    vi.stubGlobal('WebSocket', SocketHarness)
+    const callbacks = handlers()
+    receive(openTrafficSocket(callbacks), JSON.stringify({ event: 'vehicle.snapshot', data: vehicleSnapshot() }))
+    expect(callbacks.onVehicleSnapshot).toHaveBeenCalledWith(vehicleSnapshot())
+    receive(openTrafficSocket(callbacks), JSON.stringify({ event: 'vehicle.snapshot', data: { timestamp: 40, vehicles: [{ ...vehicleSnapshot().vehicles[0], speed: -1 }] } }))
+    expect(callbacks.onMalformed).toHaveBeenCalledOnce()
+  })
+
   it('lets the canonical store reject unknown intersection IDs without losing monitored data', () => {
     vi.stubGlobal('WebSocket', SocketHarness)
     let state = trafficStoreReducer(initialTrafficStoreState, {
@@ -101,6 +117,7 @@ describe('live traffic transport to centralized state', () => {
       health: { status: 'ok', simulation_connected: true, simulation_time: 40 },
       intersections: ['I1'],
       snapshot: { I1: traffic('I1') },
+      vehicles: emptyVehicleSnapshot,
       loopStatus: null,
     })
     const previousTraffic = state.trafficByIntersection

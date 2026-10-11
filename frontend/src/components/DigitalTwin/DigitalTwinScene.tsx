@@ -1,15 +1,18 @@
 import { Canvas } from '@react-three/fiber'
 import type { BuildingStyle, NetworkConfig, ViewMode } from '../../types/digitalTwin'
-import type { TrafficSnapshot } from '../../types/traffic'
+import type { TrafficSnapshot, VehicleTrack } from '../../types/traffic'
+import { sumoToWorld } from '../../data/sumoCoordinateTransform'
 import { BuildingLayer } from './Building'
 import { CameraController } from './CameraController'
 import { CityContext } from './CityContext'
 import { RoadNetwork } from './RoadNetwork'
 import { TrafficLightLayer } from './TrafficLight'
+import { VehicleFleet } from './Vehicle'
 
-type SceneProps = { network: NetworkConfig; trafficByIntersection: TrafficSnapshot; viewMode: ViewMode; buildingStyle: BuildingStyle; selectedJunctionId: string; followedVehicleId: string | null; onSelectJunction: (id: string) => void; resetSignal: number; focusSignal?: number; zoomRequest?: { direction: 1 | -1; sequence: number }; showBuildings?: boolean; panMode?: boolean }
+type SceneProps = { network: NetworkConfig; trafficByIntersection: TrafficSnapshot; vehicleTracks: VehicleTrack[]; viewMode: ViewMode; buildingStyle: BuildingStyle; selectedJunctionId: string; selectedVehicleId: string | null; followedVehicleId: string | null; onSelectJunction: (id: string) => void; onSelectVehicle: (id: string) => void; resetSignal: number; focusSignal?: number; zoomRequest?: { direction: 1 | -1; sequence: number }; showBuildings?: boolean; panMode?: boolean }
 
-function World({ network, trafficByIntersection, viewMode, buildingStyle, selectedJunctionId, followedVehicleId, onSelectJunction, resetSignal, focusSignal, zoomRequest, showBuildings = true, panMode = false }: SceneProps) {
+function World({ network, trafficByIntersection, vehicleTracks, viewMode, buildingStyle, selectedJunctionId, selectedVehicleId, followedVehicleId, onSelectJunction, onSelectVehicle, resetSignal, focusSignal, zoomRequest, showBuildings = true, panMode = false }: SceneProps) {
+  const cameraVehicles = vehicleTracks.map(({ vehicle }) => ({ id: vehicle.id, ...sumoToWorld(vehicle.x, vehicle.y) }))
   return <>
     <color attach="background" args={['#091a23']} />
     <ambientLight intensity={.65} color="#b7d8df" />
@@ -21,7 +24,8 @@ function World({ network, trafficByIntersection, viewMode, buildingStyle, select
     <RoadNetwork junctions={network.junctions} roads={network.roads} trafficByIntersection={trafficByIntersection} selectedJunctionId={selectedJunctionId} onSelectJunction={onSelectJunction} />
     {showBuildings && <BuildingLayer buildings={network.buildings} style={buildingStyle} />}
     <TrafficLightLayer definitions={network.signalDefinitions} junctions={network.junctions} trafficByIntersection={trafficByIntersection} />
-    <CameraController mode={viewMode} selectedJunctionId={selectedJunctionId} followedVehicleId={followedVehicleId} vehicles={[]} junctions={network.junctions} resetSignal={resetSignal} focusSignal={focusSignal} zoomRequest={zoomRequest} panMode={panMode} />
+    <VehicleFleet tracks={vehicleTracks} selectedVehicleId={selectedVehicleId} onSelectVehicle={onSelectVehicle} />
+    <CameraController mode={viewMode} selectedJunctionId={selectedJunctionId} followedVehicleId={followedVehicleId} vehicles={cameraVehicles} junctions={network.junctions} resetSignal={resetSignal} focusSignal={focusSignal} zoomRequest={zoomRequest} panMode={panMode} />
   </>
 }
 

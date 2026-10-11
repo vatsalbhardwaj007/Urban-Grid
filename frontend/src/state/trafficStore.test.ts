@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { initialTrafficStoreState, trafficStoreReducer } from './trafficStore'
-import type { ControlLoopStatus, HealthResponse, TrafficSnapshot, TrafficState } from '../types/traffic'
+import type { ControlLoopStatus, HealthResponse, TrafficSnapshot, TrafficState, VehicleSnapshot } from '../types/traffic'
 
 const health: HealthResponse = { status: 'ok', simulation_connected: true, simulation_time: 0 }
 const loopStatus: ControlLoopStatus = { mode: 'AUTO', is_running: false, current_cycle: 0, step_interval: 1, cycle_delay: 0, error_policy: 'continue', decision_engine: 'NullDecisionEngine' }
@@ -20,9 +20,10 @@ function traffic(timestamp: number, totalQueue: number): TrafficState {
 }
 
 function snapshot(timestamp: number, totalQueue: number): TrafficSnapshot { return { I1: traffic(timestamp, totalQueue) } }
+function vehicles(timestamp: number, ids = ['car-1']): VehicleSnapshot { return { timestamp, vehicles: ids.map((id, index) => ({ id, x: 250 + index, y: 750, speed: 8, angle: 90, lane_id: 'W_E1_I1_0', road_id: 'W_E1_I1', vehicle_type: 'passenger' })) } }
 
 function bootstrapped(snapshotToLoad = snapshot(10, 1)) {
-  return trafficStoreReducer(initialTrafficStoreState, { type: 'BOOTSTRAP', health, intersections: ['I1'], snapshot: snapshotToLoad, loopStatus })
+  return trafficStoreReducer(initialTrafficStoreState, { type: 'BOOTSTRAP', health, intersections: ['I1'], snapshot: snapshotToLoad, vehicles: vehicles(10), loopStatus })
 }
 
 describe('traffic store REST fallback generations', () => {
@@ -53,7 +54,7 @@ describe('traffic store REST fallback generations', () => {
   it('accepts an authoritative reconnect resync while WebSocket is connected', () => {
     const connected = trafficStoreReducer(bootstrapped(), { type: 'SOCKET_OPEN' })
 
-    const resynced = trafficStoreReducer(connected, { type: 'RESYNC', health, snapshot: snapshot(14, 4), loopStatus })
+    const resynced = trafficStoreReducer(connected, { type: 'RESYNC', health, snapshot: snapshot(14, 4), vehicles: vehicles(14), loopStatus })
 
     expect(resynced.trafficByIntersection.I1.total_queue).toBe(4)
     expect(resynced.lastSimulationTimestamp).toBe(14)
@@ -62,10 +63,29 @@ describe('traffic store REST fallback generations', () => {
   it('accepts a lower SUMO timestamp from an authoritative restart resync', () => {
     const connected = trafficStoreReducer(bootstrapped(snapshot(100, 8)), { type: 'SOCKET_OPEN' })
 
-    const restarted = trafficStoreReducer(connected, { type: 'RESYNC', health: { ...health, simulation_time: 1 }, snapshot: snapshot(1, 2), loopStatus })
+    const restarted = trafficStoreReducer(connected, { type: 'RESYNC', health: { ...health, simulation_time: 1 }, snapshot: snapshot(1, 2), vehicles: vehicles(1), loopStatus })
 
     expect(restarted.trafficByIntersection.I1.timestamp).toBe(1)
     expect(restarted.lastSimulationTimestamp).toBe(1)
     expect(restarted.trafficByIntersection.I1.total_queue).toBe(2)
+  })
+
+  it('replaces the complete fleet by stable ID and retains only the prior real transform for interpolation', () => {
+    const initial = bootstrapped()
+    const updated = trafficStoreReducer(initial, { type: 'VEHICLE_SNAPSHOT', snapshot: { timestamp: 11, vehicles: [{ ...vehicles(11).vehicles[0], x: 300 }, vehicles(11, ['car-2']).vehicles[0] ] } })
+    const replaced = trafficStoreReducer(updated, { type: 'VEHICLE_SNAPSHOT', snapshot: vehicles(12, ['car-1']) })
+
+    expect(Object.keys(replaced.vehiclesById)).toEqual(['car-1'])
+    expect(replaced.vehiclesById['car-1'].previous.x).toBe(300)
+    expect(replaced.vehiclesById['car-1'].vehicle.x).toBe(250)
+    expect(replaced.vehicleSnapshotTimestamp).toBe(12)
+  })
+
+  it('does not let a reconnect REST fleet resync replace a newer WebSocket fleet', () => {
+    const connected = trafficStoreReducer(bootstrapped(), { type: 'SOCKET_OPEN' })
+    const websocketFleet = trafficStoreReducer(connected, { type: 'VEHICLE_SNAPSHOT', snapshot: vehicles(12, ['ws-car']) })
+    const staleResync = trafficStoreReducer(websocketFleet, { type: 'RESYNC', health, snapshot: snapshot(12, 1), vehicles: vehicles(11, ['rest-car']), loopStatus, expectedVehicleRevision: 0 })
+
+    expect(Object.keys(staleResync.vehiclesById)).toEqual(['ws-car'])
   })
 })

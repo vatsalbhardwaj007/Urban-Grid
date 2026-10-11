@@ -1,6 +1,6 @@
 import { backendConfig } from '../config/backend'
-import type { ControlCycleResult, ControlLoopStatus, HealthResponse, TrafficSnapshot } from '../types/traffic'
-import { isControlMode, isTrafficSnapshot } from '../types/traffic'
+import type { ControlCycleResult, ControlLoopStatus, HealthResponse, TrafficSnapshot, VehicleSnapshot } from '../types/traffic'
+import { isControlMode, isTrafficSnapshot, isVehicleSnapshot } from '../types/traffic'
 
 export class BackendRequestError extends Error {
   readonly status: number | undefined
@@ -34,5 +34,6 @@ const isControlCycleResult = (value: unknown): value is ControlCycleResult => is
 export async function getHealth() { const data = await request('/health'); if (!isHealthResponse(data)) throw new BackendRequestError('Unexpected /health response.'); return data }
 export async function getIntersections() { const data = await request('/api/intersections'); if (!Array.isArray(data) || !data.every((id) => typeof id === 'string')) throw new BackendRequestError('Unexpected /api/intersections response.'); return data }
 export async function getTrafficSnapshot(): Promise<TrafficSnapshot> { const data = await request('/api/traffic-state'); if (!isTrafficSnapshot(data)) throw new BackendRequestError('Unexpected /api/traffic-state response.'); return data }
+export async function getVehicleSnapshot(): Promise<VehicleSnapshot> { const data = await request('/api/simulation/vehicles'); if (!isVehicleSnapshot(data)) throw new BackendRequestError('Unexpected /api/simulation/vehicles response.'); return data }
 export async function getControlLoopStatus() { const data = await request('/api/control/loop/status'); if (!isControlLoopStatus(data)) throw new BackendRequestError('Unexpected /api/control/loop/status response.'); return data }
 export async function stepControlLoop() { const data = await request('/api/control/loop/step', { method: 'POST' }); if (!isControlCycleResult(data)) throw new BackendRequestError('Unexpected /api/control/loop/step response.'); return data }

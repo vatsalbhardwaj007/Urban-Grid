@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isControlMode, isSignalActuationResult, isTrafficSnapshot, isTrafficState, parseWebSocketMessage } from './traffic'
+import { isControlMode, isSignalActuationResult, isTrafficSnapshot, isTrafficState, isVehicleSnapshot, parseWebSocketMessage } from './traffic'
 
 const trafficUpdate = {
   event: 'traffic.update',
@@ -30,6 +30,13 @@ describe('M2 TrafficState v1 parser', () => {
     expect(isTrafficSnapshot([])).toBe(false)
     expect(parseWebSocketMessage({ event: 'traffic.update', data: { intersection_id: 'I1' } })).toBeNull()
     expect(parseWebSocketMessage({ event: 'other.update', data: trafficUpdate.data })).toBeNull()
+  })
+
+  it('accepts only complete finite vehicle.snapshot fleet events', () => {
+    const event = { event: 'vehicle.snapshot', data: { timestamp: 12, vehicles: [{ id: 'car-1', x: 250, y: 750, speed: 8.4, angle: 90, lane_id: 'W_E1_I1_0', road_id: 'W_E1_I1', vehicle_type: 'passenger' }] } } as const
+    expect(parseWebSocketMessage(event)).toEqual(event)
+    expect(isVehicleSnapshot({ ...event.data, vehicles: [{ ...event.data.vehicles[0], x: Number.NaN }] })).toBe(false)
+    expect(isVehicleSnapshot({ ...event.data, vehicles: [event.data.vehicles[0], event.data.vehicles[0]] })).toBe(false)
   })
 
   it('only promotes a generic loop result when it is an actual signal result', () => {

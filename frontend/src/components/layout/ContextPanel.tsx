@@ -1,12 +1,23 @@
 import { selectIntersectionVisual } from '../../selectors/trafficVisuals'
 import type { Junction } from '../../types/digitalTwin'
-import type { ControlLoopStatus, SignalActuationResult, TrafficSnapshot, TrafficState } from '../../types/traffic'
+import type { ControlLoopStatus, SignalActuationResult, TrafficSnapshot, TrafficState, VehicleState } from '../../types/traffic'
 import type { ConnectionStatus } from '../../state/trafficStore'
 import { Icon } from '../Icon'
 
-type Props = { junction: Junction; traffic: TrafficState | undefined; allTraffic: TrafficSnapshot; availableJunctions: Junction[]; loopStatus: ControlLoopStatus | null; latestIntervention: SignalActuationResult | null; status: ConnectionStatus; onSelectJunction: (id: string) => void }
+type Props = { junction: Junction; traffic: TrafficState | undefined; allTraffic: TrafficSnapshot; availableJunctions: Junction[]; loopStatus: ControlLoopStatus | null; latestIntervention: SignalActuationResult | null; status: ConnectionStatus; onSelectJunction: (id: string) => void; selectedVehicle?: VehicleState; onFollowVehicle: () => void; onClearVehicle: () => void }
 
-export function ContextPanel({ junction, traffic, allTraffic, availableJunctions, loopStatus, latestIntervention, status, onSelectJunction }: Props) {
+export function ContextPanel({ junction, traffic, allTraffic, availableJunctions, loopStatus, latestIntervention, status, onSelectJunction, selectedVehicle, onFollowVehicle, onClearVehicle }: Props) {
+  if (selectedVehicle) return <aside className="context-panel vehicle-context" aria-label="Selected real SUMO vehicle">
+    <div className="context-head"><span className="panel-label">VEHICLE INTELLIGENCE</span><button className="context-icon" aria-label="Close vehicle details" onClick={onClearVehicle}>×</button></div>
+    <div className="intersection-title"><span className="intersection-id">V</span><div><h1>{selectedVehicle.id}</h1><p>Live SUMO vehicle</p></div></div>
+    <div className="intersection-meta"><span className="traffic-status"><i className="traffic-dot" />{selectedVehicle.speed.toFixed(1)} m/s</span><span className={`feed-state connection-${status}`}>{status === 'connected' ? 'LIVE' : status.toUpperCase()}</span></div>
+    <section className="intel-card"><div className="intel-title"><span>Real-time state</span><Icon name="activity" size={16} /></div>
+      <dl className="metric-grid"><div><dt>Speed</dt><dd>{selectedVehicle.speed.toFixed(1)}<small>m/s</small></dd></div><div><dt>Heading</dt><dd>{selectedVehicle.angle.toFixed(0)}<small>° SUMO</small></dd></div><div><dt>Lane</dt><dd className="vehicle-code">{selectedVehicle.lane_id || '—'}</dd></div><div><dt>Road</dt><dd className="vehicle-code">{selectedVehicle.road_id ?? '—'}</dd></div></dl>
+      <p className="metric-explanation">Direct TraCI snapshot. Position is rendered in the 3D scene; no route or prediction is inferred.</p>
+    </section>
+    <section className="intel-card"><div className="intel-title"><span>Vehicle type</span><span className="panel-label">SUMO</span></div><strong className="vehicle-type">{selectedVehicle.vehicle_type ?? 'Unknown type'}</strong><button className="step-button vehicle-follow-button" disabled={status !== 'connected'} onClick={onFollowVehicle}><Icon name="followVehicle" size={16} /><span>Follow vehicle</span><span className="step-arrow"><Icon name="arrow" size={14} /></span></button></section>
+    <div className="data-provenance"><span className="panel-label">DATA SOURCE</span><p>SUMO / TraCI · stable ID {selectedVehicle.id}</p><span>Real vehicle state · no synthetic movement</span></div>
+  </aside>
   const visual = selectIntersectionVisual(traffic)
   const lanes = traffic?.lane_features ?? []
   const peakCount = Math.max(1, ...lanes.map((lane) => lane.vehicle_count))
