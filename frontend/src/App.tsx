@@ -5,6 +5,9 @@ import { ContextPanel } from './components/layout/ContextPanel'
 import { ControlSidebar } from './components/layout/ControlSidebar'
 import { TopBar } from './components/layout/TopBar'
 import { Icon } from './components/Icon'
+import { TrafficAnalyticsDashboard } from './components/analytics/TrafficAnalyticsDashboard'
+import { dashboardHash, dashboardScreenFromHash, type DashboardScreen } from './data/dashboardNavigation'
+import type { AnalyticsScope } from './selectors/trafficAnalytics'
 import { urbanGridTopology } from './data/urbanGridTopology'
 import { viewModes } from './data/viewModes'
 import { TrafficProvider, useTrafficStore } from './state/trafficStore'
@@ -13,8 +16,10 @@ import type { TrafficSnapshot } from './types/traffic'
 import './App.css'
 
 function UrbanGridDashboard() {
+  const [screen, setScreen] = useState<DashboardScreen>(() => dashboardScreenFromHash(window.location.hash))
   const [viewMode, setViewMode] = useState<ViewMode>('city')
   const [selectedJunctionId, setSelectedJunctionId] = useState('I1')
+  const [analyticsScope, setAnalyticsScope] = useState<AnalyticsScope>('NETWORK')
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null)
   const [buildingStyle, setBuildingStyle] = useState<BuildingStyle>('solid')
   const [showBuildings, setShowBuildings] = useState(true)
@@ -32,7 +37,8 @@ function UrbanGridDashboard() {
   const observedCount = Object.keys(renderTraffic).length
   const totalQueue = Object.values(renderTraffic).reduce((sum, state) => sum + state.total_queue, 0)
   const resetCamera = useCallback(() => { setViewMode('city'); setResetSignal((value) => value + 1) }, [])
-  const selectJunction = useCallback((id: string) => { setSelectedVehicleId(null); setSelectedJunctionId(id); setViewMode('junction'); setFocusSignal((value) => value + 1) }, [])
+  const selectJunction = useCallback((id: string) => { setSelectedVehicleId(null); setSelectedJunctionId(id); setAnalyticsScope(id as AnalyticsScope); setViewMode('junction'); setFocusSignal((value) => value + 1) }, [])
+  const navigate = useCallback((next: DashboardScreen) => { if (next === screen) return; window.history.pushState({ screen: next }, '', dashboardHash(next) || `${window.location.pathname}${window.location.search}`); setScreen(next) }, [screen])
   const selectVehicle = useCallback((id: string) => { setSelectedVehicleId(id) }, [])
   const followSelectedVehicle = useCallback(() => {
     if (!selectedVehicleId || !traffic.vehiclesById[selectedVehicleId]) return
@@ -55,10 +61,11 @@ function UrbanGridDashboard() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [resetCamera])
+  useEffect(() => { const syncScreen = () => setScreen(dashboardScreenFromHash(window.location.hash)); window.addEventListener('popstate', syncScreen); return () => window.removeEventListener('popstate', syncScreen) }, [])
 
   return <main className="app-shell">
-    <TopBar status={traffic.status} health={traffic.health} lastReceivedAt={traffic.lastReceivedAt} />
-    <div className="workspace">
+    <TopBar status={traffic.status} health={traffic.health} lastReceivedAt={traffic.lastReceivedAt} screen={screen} onNavigate={navigate} />
+    <div className="live-dashboard" hidden={screen !== 'live'}><div className="workspace">
       <ControlSidebar viewMode={effectiveViewMode} selectedJunctionId={selectedJunctionId} onModeChange={changeMode} onSelectJunction={selectJunction} onStepAiLoop={traffic.stepAiLoop} onSetControlMode={traffic.setControlMode} stepDisabled={traffic.health?.simulation_connected !== true} loopStatus={traffic.loopStatus} trafficByIntersection={renderTraffic} followVehicleAvailable={Boolean(selectedVehicle)} />
       <section className="twin-area" aria-label="Urban traffic digital twin">
         <header className="twin-header"><div><div className="eyebrow">DIGITAL TWIN <span>/</span> URBAN DISTRICT</div><h2>City traffic monitor</h2></div><span className="scene-mode">3D <span>{traffic.status === 'connected' ? 'LIVE VIEW' : traffic.status === 'rest-fallback' ? 'REST VIEW' : 'LAST REAL SNAPSHOT'}</span></span></header>
@@ -75,7 +82,8 @@ function UrbanGridDashboard() {
         <footer className="telemetry-footer"><span className={`feed-state connection-${traffic.status}`}><i/>{traffic.status.replace('-', ' ').toUpperCase()}</span><span className="footer-message" title={traffic.error ?? undefined}>{traffic.error ?? (traffic.malformedEvents ? `${traffic.malformedEvents} invalid events ignored` : 'SUMO → TRAFFIC STATE → DIGITAL TWIN')}</span><span className="reset-shortcut"><kbd>R</kbd> Reset view</span></footer>
       </section>
       <ContextPanel junction={selectedJunction} traffic={renderTraffic[selectedJunction.id]} allTraffic={renderTraffic} availableJunctions={urbanGridTopology.junctions} loopStatus={traffic.loopStatus} controlMode={traffic.controlMode} health={traffic.health} intersectionAvailable={traffic.intersectionIds.includes(selectedJunction.id)} actionHistory={traffic.actionHistory} latestIntervention={traffic.latestIntervention} lastControlCycle={traffic.lastControlCycle} status={traffic.status} onSelectJunction={selectJunction} onApplyManualSignal={traffic.applyManualSignalTiming} selectedVehicle={selectedVehicle} onFollowVehicle={followSelectedVehicle} onClearVehicle={() => { setSelectedVehicleId(null); if (effectiveViewMode === 'followVehicle') resetCamera() }} />
-    </div>
+    </div></div>
+    <div className="analytics-screen" hidden={screen !== 'analytics'}><TrafficAnalyticsDashboard trafficByIntersection={renderTraffic} history={traffic.analyticsHistory} status={traffic.status} scope={analyticsScope} onScopeChange={(scope) => { setAnalyticsScope(scope); if (scope !== 'NETWORK') selectJunction(scope) }} /></div>
   </main>
 }
 

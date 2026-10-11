@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { initialTrafficStoreState, trafficStoreReducer } from './trafficStore'
+import { ANALYTICS_HISTORY_LIMIT, appendAnalyticsHistory, initialTrafficStoreState, trafficStoreReducer } from './trafficStore'
 import type { ControlLoopStatus, HealthResponse, SignalActuationResult, TrafficSnapshot, TrafficState, VehicleSnapshot } from '../types/traffic'
 
 const health: HealthResponse = { status: 'ok', simulation_connected: true, simulation_time: 0 }
@@ -160,5 +160,27 @@ describe('traffic store REST fallback generations', () => {
 
     expect(staleCycle.controlMode).toBe('EMERGENCY')
     expect(staleCycle.lastControlCycle?.mode).toBe('AUTO')
+  })
+
+  it('records accepted telemetry once, replaces equal timestamps, and rejects older analytics observations', () => {
+    const initial = bootstrapped(snapshot(10, 1))
+    const equal = trafficStoreReducer(initial, { type: 'UPSERT', traffic: traffic(10, 7) })
+    const older = trafficStoreReducer(equal, { type: 'UPSERT', traffic: traffic(9, 2) })
+
+    expect(initial.analyticsHistory).toHaveLength(1)
+    expect(equal.analyticsHistory).toHaveLength(1)
+    expect(equal.analyticsHistory[0]).toMatchObject({ simulationTime: 10, source: 'websocket', state: { total_queue: 7 } })
+    expect(older.analyticsHistory).toEqual(equal.analyticsHistory)
+  })
+
+  it('retains a bounded session history and records authoritative REST fallback provenance', () => {
+    const records = Array.from({ length: ANALYTICS_HISTORY_LIMIT + 4 }, (_, index) => traffic(index + 1, index)).reduce((history, item, index) => appendAnalyticsHistory(history, { I1: item }, ['I1'], index % 2 ? 'websocket' : 'rest', false, index), initialTrafficStoreState.analyticsHistory)
+    const disconnected = trafficStoreReducer(bootstrapped(), { type: 'SOCKET_CLOSE' })
+    const polling = trafficStoreReducer(disconnected, { type: 'POLL_SESSION_START', generation: 1 })
+    const restored = trafficStoreReducer(polling, { type: 'POLL_SUCCESS', generation: 1, snapshot: snapshot(11, 4), vehicles: vehicles(11) })
+
+    expect(records).toHaveLength(ANALYTICS_HISTORY_LIMIT)
+    expect(records[0].simulationTime).toBe(5)
+    expect(restored.analyticsHistory.at(-1)).toMatchObject({ simulationTime: 11, source: 'rest' })
   })
 })
