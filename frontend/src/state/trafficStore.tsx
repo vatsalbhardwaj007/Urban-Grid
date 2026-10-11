@@ -7,6 +7,7 @@ import type { ControlLoopStatus, ControlMode, HealthResponse, SignalActuationRes
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'rest-fallback' | 'telemetry-stale' | 'backend-unavailable' | 'sumo-unavailable'
 export type ControlCycleSummary = { cycle: number; simulationTime: number; mode: ControlMode; actionsAttempted: number; success: boolean; errors: string[]; /** Complete, unmodified M2 result collection; not a derived recommendation. */ actionResults: Array<Record<string, unknown>> }
+export type ActionHistoryRecord = { id: string; kind: 'SIGNAL' | 'ROUTE' | 'UNKNOWN'; source: string | null; target: string | null; success: boolean | null; observedAt: number; provenance: 'client-observed'; mode: ControlMode | null; details: Record<string, unknown> }
 export type TrafficStoreState = {
   status: ConnectionStatus
   health: HealthResponse | null
@@ -27,6 +28,7 @@ export type TrafficStoreState = {
   lastControlCycle: ControlCycleSummary | null
   /** Bounded, browser-session-only history of complete control-loop outcomes. */
   controlCycleHistory: ControlCycleSummary[]
+  actionHistory: ActionHistoryRecord[]
   lastReceivedAt: number | null
   lastSimulationTimestamp: number | null
   lastHeartbeatAt: number | null
@@ -46,14 +48,18 @@ type Action =
   | { type: 'POLL_SESSION_START'; generation: number } | { type: 'POLL_INVALIDATED'; generation: number }
   | { type: 'POLL_SUCCESS'; snapshot: TrafficSnapshot; vehicles: VehicleSnapshot; generation: number } | { type: 'POLL_FAILURE'; error: string; generation: number }
   | { type: 'SIGNAL_REFRESH'; snapshot: TrafficSnapshot }
+  | { type: 'ACTION_HISTORY'; records: ActionHistoryRecord[] }
   | { type: 'MALFORMED' }
   | { type: 'LOOP_STEP'; snapshot: TrafficSnapshot; mode: ControlMode; intervention: SignalActuationResult | null; cycle: ControlCycleSummary; expectedModeRevision: number }
   | { type: 'CONTROL_MODE'; mode: ControlMode } | { type: 'MODE_SYNC'; mode: ControlMode; expectedRevision: number } | { type: 'LOOP_ERROR'; error: string }
 
 // oxlint-disable-next-line react/only-export-components
-export const initialTrafficStoreState: TrafficStoreState = { status: 'connecting', health: null, intersectionIds: [], trafficByIntersection: {}, vehiclesById: {}, vehicleSnapshotTimestamp: null, vehicleLastReceivedAt: null, vehicleRevision: 0, loopStatus: null, controlMode: null, controlModeLastConfirmedAt: null, modeRevision: 0, latestIntervention: null, lastControlCycle: null, controlCycleHistory: [], lastReceivedAt: null, lastSimulationTimestamp: null, lastHeartbeatAt: null, error: null, malformedEvents: 0, unknownEvents: 0, pollingGeneration: 0 }
+export const initialTrafficStoreState: TrafficStoreState = { status: 'connecting', health: null, intersectionIds: [], trafficByIntersection: {}, vehiclesById: {}, vehicleSnapshotTimestamp: null, vehicleLastReceivedAt: null, vehicleRevision: 0, loopStatus: null, controlMode: null, controlModeLastConfirmedAt: null, modeRevision: 0, latestIntervention: null, lastControlCycle: null, controlCycleHistory: [], actionHistory: [], lastReceivedAt: null, lastSimulationTimestamp: null, lastHeartbeatAt: null, error: null, malformedEvents: 0, unknownEvents: 0, pollingGeneration: 0 }
 const receiptNow = () => Date.now()
 const CONTROL_HISTORY_LIMIT = 12
+const ACTION_HISTORY_LIMIT = 100
+let actionSequence = 0
+function toActionRecord(details: Record<string, unknown>, mode: ControlMode | null): ActionHistoryRecord { const kind = 'applied_route' in details ? 'ROUTE' : 'applied_duration' in details ? 'SIGNAL' : 'UNKNOWN'; actionSequence += 1; return { id: `client-action-${actionSequence}`, kind, source: typeof details.source === 'string' ? details.source : null, target: typeof details.target === 'string' ? details.target : null, success: typeof details.success === 'boolean' ? details.success : null, observedAt: Date.now(), provenance: 'client-observed', mode, details } }
 
 function latestSimulationTimestamp(snapshot: TrafficSnapshot) { const timestamps = Object.values(snapshot).map((traffic) => traffic.timestamp); return timestamps.length ? Math.max(...timestamps) : null }
 function isSimulationRestart(state: TrafficStoreState, health: HealthResponse) { return state.lastSimulationTimestamp !== null && health.simulation_time !== null && health.simulation_time < state.lastSimulationTimestamp }
@@ -133,11 +139,12 @@ export function trafficStoreReducer(state: TrafficStoreState, action: Action): T
   }
   if (action.type === 'POLL_FAILURE') return action.generation !== state.pollingGeneration || state.status === 'connected' ? state : { ...state, status: 'backend-unavailable', lastHeartbeatAt: null, error: action.error }
   if (action.type === 'SIGNAL_REFRESH') return { ...state, ...reconcileSnapshot(state, action.snapshot) }
+  if (action.type === 'ACTION_HISTORY') return { ...state, actionHistory: [...action.records, ...state.actionHistory].slice(0, ACTION_HISTORY_LIMIT) }
   if (action.type === 'LOOP_STEP') {
     const history = [action.cycle, ...state.controlCycleHistory].slice(0, CONTROL_HISTORY_LIMIT)
     const modeIsFresh = action.expectedModeRevision === state.modeRevision
     const base = { ...state, loopStatus: modeIsFresh && state.loopStatus ? { ...state.loopStatus, mode: action.mode } : state.loopStatus }
-    return { ...base, ...reconcileSnapshot(base, action.snapshot), ...(modeIsFresh ? withConfirmedMode(base, action.mode, true) : {}), latestIntervention: action.intervention, lastControlCycle: action.cycle, controlCycleHistory: history, error: null }
+    return { ...base, ...reconcileSnapshot(base, action.snapshot), ...(modeIsFresh ? withConfirmedMode(base, action.mode, true) : {}), actionHistory: [...action.cycle.actionResults.map((item) => toActionRecord(item, action.mode)), ...state.actionHistory].slice(0, ACTION_HISTORY_LIMIT), latestIntervention: action.intervention, lastControlCycle: action.cycle, controlCycleHistory: history, error: null }
   }
   if (action.type === 'CONTROL_MODE') return { ...state, ...withConfirmedMode(state, action.mode, true), error: null }
   if (action.type === 'MODE_SYNC') return action.expectedRevision !== state.modeRevision ? state : { ...state, ...withConfirmedMode(state, action.mode, true), error: null }
@@ -225,7 +232,10 @@ export function TrafficProvider({ children }: { children: React.ReactNode }) {
     if (current.health?.simulation_connected !== true || current.status === 'backend-unavailable' || current.status === 'sumo-unavailable') throw new BackendRequestError('SUMO and backend connectivity are required for manual signal control.')
     if (current.controlMode !== 'MANUAL') throw new BackendRequestError('Manual signal control is available only when the backend-confirmed mode is MANUAL.')
     if (!current.intersectionIds.includes(target)) throw new BackendRequestError('The selected intersection is not available for control.')
-    const result = await requestManualSignalTiming({ target, green_duration: duration, source: 'MANUAL', timestamp: new Date().toISOString() })
+    let result: SignalActuationResult
+    try { result = await requestManualSignalTiming({ target, green_duration: duration, source: 'MANUAL', timestamp: new Date().toISOString() }) }
+    catch (error) { dispatch({ type: 'ACTION_HISTORY', records: [toActionRecord({ target, source: 'MANUAL', success: false, message: error instanceof Error ? error.message : 'Manual signal request failed.' }, current.controlMode)] }); throw error }
+    dispatch({ type: 'ACTION_HISTORY', records: [toActionRecord({ ...result }, current.controlMode)] })
     const expectedModeRevision = stateRef.current.modeRevision
     const [snapshot, mode] = await Promise.allSettled([getTrafficSnapshot(), getControlMode()])
     if (snapshot.status === 'fulfilled') dispatch({ type: 'SIGNAL_REFRESH', snapshot: snapshot.value })
