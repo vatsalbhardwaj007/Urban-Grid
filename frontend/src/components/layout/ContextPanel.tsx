@@ -1,4 +1,5 @@
 import { selectIntersectionVisual } from '../../selectors/trafficVisuals'
+import { TrafficMap2D } from '../DigitalTwin/TrafficMap2D'
 import type { Junction } from '../../types/digitalTwin'
 import { isRouteActuationResult, isSignalActuationResult } from '../../types/traffic'
 import type { ControlLoopStatus, SignalActuationResult, TrafficSnapshot, TrafficState, VehicleState } from '../../types/traffic'
@@ -39,6 +40,7 @@ export function ContextPanel({ junction, traffic, allTraffic, availableJunctions
     <div className="intersection-title"><span className="intersection-id">{junction.id}</span><div><h1>{junction.name}</h1><p>Monitored intersection</p></div></div>
     <div className="intersection-meta"><span className="traffic-status"><i className="traffic-dot" />{traffic ? visual.status === 'flowing' ? 'Flowing traffic' : visual.status === 'moderate' ? 'Moderate traffic' : 'Critical traffic' : 'Awaiting telemetry'}</span><span className={`feed-state connection-${status}`}>{feedLabel(status)}</span></div>
     <nav className="junction-options" aria-label="Select intersection">{availableJunctions.map((item) => <button className={`${item.id === junction.id ? 'active' : ''} status-${selectIntersectionVisual(allTraffic[item.id]).status}`} key={item.id} aria-pressed={item.id === junction.id} onClick={() => onSelectJunction(item.id)} title={`Focus ${item.id} ${item.name}`}><i className="traffic-dot" />{item.id}</button>)}</nav>
+    <TrafficMap2D trafficByIntersection={allTraffic} status={status} selectedJunctionId={junction.id} onSelectJunction={onSelectJunction} />
     <section className="intel-card"><div className="intel-title"><span>Traffic overview</span><Icon name="activity" size={16} /></div><div className="primary-metric"><strong>{traffic ? visual.totalVehicles : '—'}</strong><span>vehicles observed<small>across {traffic ? lanes.length : '—'} approach lanes</small></span></div>
       <dl className="metric-grid"><div><dt>Mean speed</dt><dd>{traffic ? visual.meanSpeed.toFixed(1) : '—'}<small>m/s</small></dd></div><div><dt>Queue length</dt><dd>{traffic ? visual.queue : '—'}<small>vehicles</small></dd></div><div><dt>Density</dt><dd>{traffic ? visual.density.toFixed(1) : '—'}<small>veh/km</small></dd></div><div><dt>Arrival rate</dt><dd>{traffic ? traffic.arrival_rate.toFixed(2) : '—'}<small>veh/s</small></dd></div></dl>
       <div className="congestion-heading"><span>Congestion index</span><b>{traffic ? `${visual.congestion}%` : '—'}</b></div><div className="congestion-track"><i style={{ width: `${traffic ? visual.congestion : 0}%` }} /></div><p className="metric-explanation">Derived from queue, density and speed. Not an AI prediction.</p>

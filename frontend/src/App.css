@@ -146,6 +146,7 @@ kbd { border: 1px solid #35525c; color: #9bb8c0; border-radius: 3px; font: 8px v
 .junction-options button .traffic-dot { margin-right: 6px; width: 4px; height: 4px; }
 .junction-options button.active { background: #17353e; border-color: #4c929b; color: #d8f0f0; }
 .junction-options button:hover { background: #17353e; }
+.traffic-map-card { border-top: 1px solid var(--line); padding: 18px 20px 16px; background: linear-gradient(135deg, #0b1b23 0%, #0d2028 100%); }.traffic-map-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 12px; }.traffic-map-header h3 { margin: 5px 0 0; color: #d4e6e9; font-size: 12px; font-weight: 600; }.traffic-map-source { border: 1px solid #35515a; border-radius: 3px; color: #8ca9b2; padding: 3px 5px; font: 7px var(--mono); }.map-stale .traffic-map-source { color: var(--orange); border-color: #765f39; }.map-unavailable .traffic-map-source { color: #a28b89; border-color: #594a4a; }.traffic-map-canvas { position: relative; overflow: hidden; border: 1px solid #27444e; border-radius: 7px; background: #081820; }.traffic-map-canvas svg { display: block; width: 100%; height: auto; aspect-ratio: 320 / 224; touch-action: none; cursor: grab; }.traffic-map-canvas svg:active { cursor: grabbing; }.traffic-map-grid path { fill: none; stroke: #17323d; stroke-width: .6; }.traffic-map-road-base { stroke: #1f3740; stroke-width: 13; stroke-linecap: square; }.traffic-map-road-state { stroke-width: 3; stroke-linecap: square; opacity: .9; transition: stroke .3s ease; }.map-stale .traffic-map-road-state { opacity: .54; }.map-unavailable .traffic-map-road-state { opacity: .42; }.traffic-map-node { cursor: pointer; outline: none; }.traffic-map-node-halo { fill: #112b34; stroke: #36555e; stroke-width: 1; transition: fill .2s ease, stroke .2s ease; }.traffic-map-node-core { fill: #15343d; stroke: var(--traffic); stroke-width: 2; }.traffic-map-node.selected .traffic-map-node-halo { fill: #17434b; stroke: var(--cyan); stroke-width: 2; }.traffic-map-node:hover .traffic-map-node-halo, .traffic-map-node:focus .traffic-map-node-halo { fill: #1a414b; stroke: #b5eeec; stroke-width: 2; }.traffic-map-node:focus-visible .traffic-map-node-halo { stroke: #d3ffff; stroke-width: 3; }.traffic-map-node.stale { opacity: .66; }.traffic-map-node text { fill: #e1eff0; font: 10px var(--mono); pointer-events: none; }.traffic-map-node .traffic-map-queue { fill: #8ca6af; font-size: 7px; }.traffic-map-signal { stroke: #07161c; stroke-width: 2; }.traffic-map-controls { position: absolute; top: 7px; right: 7px; display: flex; gap: 3px; padding: 3px; border: 1px solid #35525c; border-radius: 5px; background: #0b1d25e8; }.traffic-map-controls button { min-width: 24px; height: 24px; border: 0; border-radius: 3px; background: transparent; color: #b6d0d5; font: 8px var(--mono); }.traffic-map-controls button:hover { color: #e5ffff; background: #23414a; }.traffic-map-controls button:last-child { width: auto; padding: 0 5px; }.traffic-map-footer { display: flex; align-items: flex-start; gap: 7px; margin: 10px 0 0; color: #78949e; font-size: 8px; line-height: 1.5; }.traffic-map-footer .traffic-dot { margin-top: 4px; }
 .intel-card { padding: 21px 20px; border-top: 1px solid var(--line); }
 .intel-title { display: flex; align-items: center; justify-content: space-between; color: #b1c9d0; font-size: 11px; font-weight: 600; }
 .intel-title > svg { color: #557e89; }
@@ -248,6 +249,7 @@ kbd { border: 1px solid #35525c; color: #9bb8c0; border-radius: 3px; font: 8px v
   .view-tab { padding: 10px 7px; gap: 5px; font-size: 8px; }
   .view-tab svg { width: 16px; }
   .context-head, .intel-card, .data-provenance { padding-left: 16px; padding-right: 16px; }
+  .traffic-map-card { padding-left: 16px; padding-right: 16px; }
   .intersection-title { padding: 0 16px; }
   .intersection-meta, .junction-options { margin-left: 16px; margin-right: 16px; }
   .metric-grid dd { font-size: 16px; }
@@ -309,6 +311,7 @@ kbd { border: 1px solid #35525c; color: #9bb8c0; border-radius: 3px; font: 8px v
   .reset-shortcut { display: none; }
   .context-panel { order: 3; border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
   .context-head, .intel-card, .data-provenance { padding-left: 23px; padding-right: 23px; }
+  .traffic-map-card { padding-left: 23px; padding-right: 23px; }
   .intersection-title { padding: 0 23px; }
   .intersection-meta, .junction-options { margin-left: 23px; margin-right: 23px; }
   .metric-grid { grid-template-columns: repeat(4, 1fr); }
