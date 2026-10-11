@@ -61,6 +61,8 @@ export interface ApiErrorResponse { detail: string | Array<{ loc: Array<string |
 export interface ControlLoopStatus { mode: ControlMode; is_running: boolean; current_cycle: number; step_interval: number; cycle_delay: number; error_policy: string; decision_engine: string }
 /** Returned by the existing control-mode endpoint; it intentionally contains no telemetry. */
 export interface ControlModeResponse { mode: ControlMode; description: string; previous_mode: ControlMode | null }
+/** Existing POST /api/control/signal request contract. */
+export interface ManualSignalAction { target: string; green_duration: number; source: 'MANUAL'; timestamp: string }
 export interface SignalActuationResult { success: boolean; target: string; applied_duration: number; current_phase: string; applied_to: string; source: ActionSource; message: string }
 /** Route results are returned in the generic control-loop result collection. */
 export interface RouteActuationResult { success: boolean; target: string; applied_route: string[]; previous_route: string[]; source: ActionSource; message: string }

@@ -174,6 +174,16 @@ kbd { border: 1px solid #35525c; color: #9bb8c0; border-radius: 3px; font: 8px v
 .action-result { display: grid; gap: 2px; border-top: 1px solid #243c46; padding-top: 6px; }
 .action-result span { color: #8eaab2; font-size: 7px; }
 .action-result small { color: #b8cbd0; }
+.manual-signal-control { border-color: #315461; }
+.manual-mode { border: 1px solid #34515d; border-radius: 3px; padding: 3px 5px; font: 8px var(--mono); }
+.mode-manual { color: var(--mint); border-color: #326051; }
+.mode-auto, .mode-emergency { color: var(--orange); }
+.manual-observed { display: grid; grid-template-columns: 1fr auto; gap: 5px 10px; margin: 14px 0; padding: 10px; border: 1px solid #28404a; border-radius: 5px; background: #0a1b23; }
+.manual-observed span, .manual-observed small, .manual-help, .manual-announcement, .manual-result-detail { color: #8ca6af; font-size: 8px; line-height: 1.55; }
+.manual-observed b { color: #c8dfe4; font: 10px var(--mono); }.manual-observed small { grid-column: 1 / -1; }
+.manual-signal-control form { display: grid; gap: 7px; }.manual-signal-control label { color: #a7c0c7; font-size: 9px; }.manual-signal-control label span { color: #6f8b95; }
+.manual-input-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }.manual-input-row input { min-width: 0; border: 1px solid #34515d; border-radius: 4px; background: #07161d; color: #e0f2f4; padding: 9px; font: 12px var(--mono); }.manual-input-row input:focus { outline: 2px solid #3e98aa; outline-offset: 1px; }.manual-input-row button { border: 1px solid #3a756c; border-radius: 4px; background: #123a3a; color: #c9f1e6; padding: 0 10px; font: 9px var(--mono); cursor: pointer; }.manual-input-row button:hover:not(:disabled) { background: #185149; }.manual-input-row button:disabled, .manual-input-row input:disabled { cursor: not-allowed; opacity: .55; }
+.manual-help { margin: 0; }.manual-announcement { margin-top: 10px; min-height: 28px; }.manual-error { color: #e29a94; }.manual-success { color: var(--mint); }.manual-result-detail { margin: 7px 0 0; color: #b2c8cd; }
 .congestion-heading { display: flex; justify-content: space-between; color: #8ba6af; font-size: 10px; }
 .congestion-heading b { color: var(--traffic); font: 11px var(--mono); }
 .congestion-track { height: 4px; border-radius: 4px; background: #253b43; margin: 11px 0; overflow: hidden; }

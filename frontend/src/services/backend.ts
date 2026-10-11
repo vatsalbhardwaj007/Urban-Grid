@@ -1,6 +1,6 @@
 import { backendConfig } from '../config/backend'
-import type { ControlCycleResult, ControlLoopStatus, ControlMode, ControlModeResponse, HealthResponse, TrafficSnapshot, VehicleSnapshot } from '../types/traffic'
-import { isControlMode, isControlModeResponse, isSimulationTimestamp, isTrafficSnapshot, isVehicleSnapshot } from '../types/traffic'
+import type { ControlCycleResult, ControlLoopStatus, ControlMode, ControlModeResponse, HealthResponse, ManualSignalAction, SignalActuationResult, TrafficSnapshot, VehicleSnapshot } from '../types/traffic'
+import { isControlMode, isControlModeResponse, isSignalActuationResult, isSimulationTimestamp, isTrafficSnapshot, isVehicleSnapshot } from '../types/traffic'
 
 export class BackendRequestError extends Error {
   readonly status: number | undefined
@@ -21,7 +21,7 @@ function errorDetail(value: unknown) {
 async function request(path: string, init?: RequestInit): Promise<unknown> {
   let response: Response
   try { response = await fetch(`${backendConfig.httpUrl}${path}`, { headers: { Accept: 'application/json', ...init?.headers }, ...init }) }
-  catch { throw new BackendRequestError('Backend is unavailable.') }
+  catch (error) { throw new BackendRequestError(error instanceof DOMException && error.name === 'AbortError' ? 'Signal timing request timed out.' : 'Backend is unavailable.') }
   const body: unknown = await response.json().catch(() => null)
   if (!response.ok) throw new BackendRequestError(errorDetail(body), response.status)
   return body
@@ -41,5 +41,14 @@ export async function setControlMode(mode: ControlMode): Promise<ControlModeResp
   const data = await request('/api/control/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) })
   if (!isControlModeResponse(data)) throw new BackendRequestError('Unexpected /api/control/mode response.')
   return data
+}
+export async function applyManualSignalTiming(action: ManualSignalAction): Promise<SignalActuationResult> {
+  const controller = new AbortController()
+  const timeout = globalThis.setTimeout(() => controller.abort(), 10_000)
+  try {
+    const data = await request('/api/control/signal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(action), signal: controller.signal })
+    if (!isSignalActuationResult(data)) throw new BackendRequestError('Unexpected /api/control/signal response.')
+    return data
+  } finally { globalThis.clearTimeout(timeout) }
 }
 export async function stepControlLoop() { const data = await request('/api/control/loop/step', { method: 'POST' }); if (!isControlCycleResult(data)) throw new BackendRequestError('Unexpected /api/control/loop/step response.'); return data }

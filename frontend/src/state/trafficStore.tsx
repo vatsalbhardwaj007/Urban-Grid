@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react'
 import { CANONICAL_INTERSECTION_IDS } from '../data/urbanGridTopology'
-import { getControlLoopStatus, getControlMode, getHealth, getIntersections, getTrafficSnapshot, getVehicleSnapshot, setControlMode as requestControlMode, stepControlLoop } from '../services/backend'
+import { applyManualSignalTiming as requestManualSignalTiming, BackendRequestError, getControlLoopStatus, getControlMode, getHealth, getIntersections, getTrafficSnapshot, getVehicleSnapshot, setControlMode as requestControlMode, stepControlLoop } from '../services/backend'
 import { openTrafficSocket } from '../services/trafficSocket'
 import { isSignalActuationResult } from '../types/traffic'
 import type { ControlLoopStatus, ControlMode, HealthResponse, SignalActuationResult, TrafficSnapshot, TrafficState, VehicleSnapshot, VehicleTrack } from '../types/traffic'
@@ -45,6 +45,7 @@ type Action =
   | { type: 'UPSERT'; traffic: TrafficState } | { type: 'VEHICLE_SNAPSHOT'; snapshot: VehicleSnapshot }
   | { type: 'POLL_SESSION_START'; generation: number } | { type: 'POLL_INVALIDATED'; generation: number }
   | { type: 'POLL_SUCCESS'; snapshot: TrafficSnapshot; vehicles: VehicleSnapshot; generation: number } | { type: 'POLL_FAILURE'; error: string; generation: number }
+  | { type: 'SIGNAL_REFRESH'; snapshot: TrafficSnapshot }
   | { type: 'MALFORMED' }
   | { type: 'LOOP_STEP'; snapshot: TrafficSnapshot; mode: ControlMode; intervention: SignalActuationResult | null; cycle: ControlCycleSummary; expectedModeRevision: number }
   | { type: 'CONTROL_MODE'; mode: ControlMode } | { type: 'MODE_SYNC'; mode: ControlMode; expectedRevision: number } | { type: 'LOOP_ERROR'; error: string }
@@ -131,6 +132,7 @@ export function trafficStoreReducer(state: TrafficStoreState, action: Action): T
     return { ...state, ...reconcileSnapshot(state, action.snapshot), ...reconcileVehicles(state, action.vehicles), status: 'rest-fallback', error: 'Live stream unavailable; receiving authoritative REST telemetry.' }
   }
   if (action.type === 'POLL_FAILURE') return action.generation !== state.pollingGeneration || state.status === 'connected' ? state : { ...state, status: 'backend-unavailable', lastHeartbeatAt: null, error: action.error }
+  if (action.type === 'SIGNAL_REFRESH') return { ...state, ...reconcileSnapshot(state, action.snapshot) }
   if (action.type === 'LOOP_STEP') {
     const history = [action.cycle, ...state.controlCycleHistory].slice(0, CONTROL_HISTORY_LIMIT)
     const modeIsFresh = action.expectedModeRevision === state.modeRevision
@@ -143,7 +145,7 @@ export function trafficStoreReducer(state: TrafficStoreState, action: Action): T
   return state
 }
 
-type TrafficStore = TrafficStoreState & { stepAiLoop: () => Promise<void>; setControlMode: (mode: ControlMode) => Promise<void> }
+type TrafficStore = TrafficStoreState & { stepAiLoop: () => Promise<void>; setControlMode: (mode: ControlMode) => Promise<void>; applyManualSignalTiming: (target: string, duration: number) => Promise<SignalActuationResult> }
 const TrafficContext = createContext<TrafficStore | null>(null)
 
 export function TrafficProvider({ children }: { children: React.ReactNode }) {
@@ -218,7 +220,19 @@ export function TrafficProvider({ children }: { children: React.ReactNode }) {
     try { const response = await requestControlMode(mode); if (requestGeneration === modeRequestGeneration.current) dispatch({ type: 'CONTROL_MODE', mode: response.mode }) }
     catch (error) { if (requestGeneration === modeRequestGeneration.current) dispatch({ type: 'LOOP_ERROR', error: error instanceof Error ? error.message : 'Unable to change the control mode.' }) }
   }, [])
-  const value = useMemo<TrafficStore>(() => ({ ...state, stepAiLoop, setControlMode }), [state, stepAiLoop, setControlMode])
+  const applyManualSignalTiming = useCallback(async (target: string, duration: number) => {
+    const current = stateRef.current
+    if (current.health?.simulation_connected !== true || current.status === 'backend-unavailable' || current.status === 'sumo-unavailable') throw new BackendRequestError('SUMO and backend connectivity are required for manual signal control.')
+    if (current.controlMode !== 'MANUAL') throw new BackendRequestError('Manual signal control is available only when the backend-confirmed mode is MANUAL.')
+    if (!current.intersectionIds.includes(target)) throw new BackendRequestError('The selected intersection is not available for control.')
+    const result = await requestManualSignalTiming({ target, green_duration: duration, source: 'MANUAL', timestamp: new Date().toISOString() })
+    const expectedModeRevision = stateRef.current.modeRevision
+    const [snapshot, mode] = await Promise.allSettled([getTrafficSnapshot(), getControlMode()])
+    if (snapshot.status === 'fulfilled') dispatch({ type: 'SIGNAL_REFRESH', snapshot: snapshot.value })
+    if (mode.status === 'fulfilled') dispatch({ type: 'MODE_SYNC', mode: mode.value.mode, expectedRevision: expectedModeRevision })
+    return result
+  }, [])
+  const value = useMemo<TrafficStore>(() => ({ ...state, stepAiLoop, setControlMode, applyManualSignalTiming }), [state, stepAiLoop, setControlMode, applyManualSignalTiming])
   return <TrafficContext.Provider value={value}>{children}</TrafficContext.Provider>
 }
 
