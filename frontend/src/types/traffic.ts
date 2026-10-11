@@ -62,11 +62,16 @@ export interface ControlLoopStatus { mode: ControlMode; is_running: boolean; cur
 /** Returned by the existing control-mode endpoint; it intentionally contains no telemetry. */
 export interface ControlModeResponse { mode: ControlMode; description: string; previous_mode: ControlMode | null }
 export interface SignalActuationResult { success: boolean; target: string; applied_duration: number; current_phase: string; applied_to: string; source: ActionSource; message: string }
+/** Route results are returned in the generic control-loop result collection. */
+export interface RouteActuationResult { success: boolean; target: string; applied_route: string[]; previous_route: string[]; source: ActionSource; message: string }
 /** M2 declares control-loop action_results as list[dict[str, Any]]. */
 export interface ControlCycleResult { cycle: number; simulation_time: number; mode: ControlMode; states: TrafficSnapshot; actions_attempted: number; action_results: Array<Record<string, unknown>>; errors: string[]; success: boolean }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 const isNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+/** M2 SUMO timestamps are simulation seconds, never epoch milliseconds. */
+export const MAX_SIMULATION_TIMESTAMP_SECONDS = 31_536_000_000
+export const isSimulationTimestamp = (value: unknown): value is number => isNumber(value) && value >= 0 && value <= MAX_SIMULATION_TIMESTAMP_SECONDS
 const isNonNegativeNumber = (value: unknown): value is number => isNumber(value) && value >= 0
 const isNonNegativeInteger = (value: unknown): value is number => isNumber(value) && Number.isInteger(value) && value >= 0
 const isSignalPhase = (value: unknown): value is SignalPhase => value === 'RED' || value === 'YELLOW' || value === 'GREEN'
@@ -78,7 +83,7 @@ export function isLaneFeature(value: unknown): value is LaneFeature {
 }
 
 export function isTrafficState(value: unknown): value is TrafficState {
-  return isRecord(value) && isNonNegativeNumber(value.timestamp) && typeof value.intersection_id === 'string' && Array.isArray(value.lane_features) && value.lane_features.every(isLaneFeature) && isNonNegativeInteger(value.total_queue) && isNonNegativeNumber(value.mean_speed) && isNonNegativeNumber(value.arrival_rate) && isNonNegativeNumber(value.density) && isSignalPhase(value.signal_phase) && isNonNegativeNumber(value.green_remaining)
+  return isRecord(value) && isSimulationTimestamp(value.timestamp) && typeof value.intersection_id === 'string' && Array.isArray(value.lane_features) && value.lane_features.every(isLaneFeature) && isNonNegativeInteger(value.total_queue) && isNonNegativeNumber(value.mean_speed) && isNonNegativeNumber(value.arrival_rate) && isNonNegativeNumber(value.density) && isSignalPhase(value.signal_phase) && isNonNegativeNumber(value.green_remaining)
 }
 
 export function isVehicleState(value: unknown): value is VehicleState {
@@ -86,7 +91,7 @@ export function isVehicleState(value: unknown): value is VehicleState {
 }
 
 export function isVehicleSnapshot(value: unknown): value is VehicleSnapshot {
-  return isRecord(value) && isNonNegativeNumber(value.timestamp) && Array.isArray(value.vehicles) && value.vehicles.every(isVehicleState) && new Set(value.vehicles.map((vehicle) => vehicle.id)).size === value.vehicles.length
+  return isRecord(value) && isSimulationTimestamp(value.timestamp) && Array.isArray(value.vehicles) && value.vehicles.every(isVehicleState) && new Set(value.vehicles.map((vehicle) => vehicle.id)).size === value.vehicles.length
 }
 
 export function isTrafficSnapshot(value: unknown): value is TrafficSnapshot {
@@ -108,4 +113,8 @@ export function parseWebSocketMessage(value: unknown): WebSocketIncomingMessage 
 /** Safe presentation selector for the generic M2 control-loop result objects. */
 export function isSignalActuationResult(value: unknown): value is SignalActuationResult {
   return isRecord(value) && typeof value.success === 'boolean' && typeof value.target === 'string' && isNumber(value.applied_duration) && typeof value.current_phase === 'string' && typeof value.applied_to === 'string' && isActionSource(value.source) && typeof value.message === 'string'
+}
+
+export function isRouteActuationResult(value: unknown): value is RouteActuationResult {
+  return isRecord(value) && typeof value.success === 'boolean' && typeof value.target === 'string' && Array.isArray(value.applied_route) && value.applied_route.every((edge) => typeof edge === 'string') && Array.isArray(value.previous_route) && value.previous_route.every((edge) => typeof edge === 'string') && isActionSource(value.source) && typeof value.message === 'string'
 }

@@ -51,6 +51,7 @@ describe('live traffic transport to centralized state', () => {
       snapshot: {},
       vehicles: emptyVehicleSnapshot,
       loopStatus: null,
+      controlMode: 'AUTO',
     })
     const callbacks = handlers()
     callbacks.onUpdate.mockImplementation((update: TrafficState) => {
@@ -119,6 +120,7 @@ describe('live traffic transport to centralized state', () => {
       snapshot: { I1: traffic('I1') },
       vehicles: emptyVehicleSnapshot,
       loopStatus: null,
+      controlMode: 'AUTO',
     })
     const previousTraffic = state.trafficByIntersection
     const callbacks = handlers()

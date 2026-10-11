@@ -1,6 +1,6 @@
 import { backendConfig } from '../config/backend'
 import type { ControlCycleResult, ControlLoopStatus, ControlMode, ControlModeResponse, HealthResponse, TrafficSnapshot, VehicleSnapshot } from '../types/traffic'
-import { isControlMode, isControlModeResponse, isTrafficSnapshot, isVehicleSnapshot } from '../types/traffic'
+import { isControlMode, isControlModeResponse, isSimulationTimestamp, isTrafficSnapshot, isVehicleSnapshot } from '../types/traffic'
 
 export class BackendRequestError extends Error {
   readonly status: number | undefined
@@ -27,7 +27,7 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
   return body
 }
 
-const isHealthResponse = (value: unknown): value is HealthResponse => isRecord(value) && value.status === 'ok' && typeof value.simulation_connected === 'boolean' && (value.simulation_time === null || isNumber(value.simulation_time))
+const isHealthResponse = (value: unknown): value is HealthResponse => isRecord(value) && value.status === 'ok' && typeof value.simulation_connected === 'boolean' && (value.simulation_time === null || isSimulationTimestamp(value.simulation_time))
 const isControlLoopStatus = (value: unknown): value is ControlLoopStatus => isRecord(value) && isControlMode(value.mode) && typeof value.is_running === 'boolean' && isNumber(value.current_cycle) && isNumber(value.step_interval) && isNumber(value.cycle_delay) && typeof value.error_policy === 'string' && typeof value.decision_engine === 'string'
 const isControlCycleResult = (value: unknown): value is ControlCycleResult => isRecord(value) && isNumber(value.cycle) && isNumber(value.simulation_time) && isControlMode(value.mode) && isTrafficSnapshot(value.states) && isNumber(value.actions_attempted) && Array.isArray(value.action_results) && value.action_results.every(isRecord) && Array.isArray(value.errors) && value.errors.every((error) => typeof error === 'string') && typeof value.success === 'boolean'
 
@@ -36,6 +36,7 @@ export async function getIntersections() { const data = await request('/api/inte
 export async function getTrafficSnapshot(): Promise<TrafficSnapshot> { const data = await request('/api/traffic-state'); if (!isTrafficSnapshot(data)) throw new BackendRequestError('Unexpected /api/traffic-state response.'); return data }
 export async function getVehicleSnapshot(): Promise<VehicleSnapshot> { const data = await request('/api/simulation/vehicles'); if (!isVehicleSnapshot(data)) throw new BackendRequestError('Unexpected /api/simulation/vehicles response.'); return data }
 export async function getControlLoopStatus() { const data = await request('/api/control/loop/status'); if (!isControlLoopStatus(data)) throw new BackendRequestError('Unexpected /api/control/loop/status response.'); return data }
+export async function getControlMode(): Promise<ControlModeResponse> { const data = await request('/api/control/mode'); if (!isControlModeResponse(data)) throw new BackendRequestError('Unexpected /api/control/mode response.'); return data }
 export async function setControlMode(mode: ControlMode): Promise<ControlModeResponse> {
   const data = await request('/api/control/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) })
   if (!isControlModeResponse(data)) throw new BackendRequestError('Unexpected /api/control/mode response.')

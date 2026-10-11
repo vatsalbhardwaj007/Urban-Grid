@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isControlMode, isControlModeResponse, isSignalActuationResult, isTrafficSnapshot, isTrafficState, isVehicleSnapshot, parseWebSocketMessage } from './traffic'
+import { MAX_SIMULATION_TIMESTAMP_SECONDS, isControlMode, isControlModeResponse, isRouteActuationResult, isSignalActuationResult, isTrafficSnapshot, isTrafficState, isVehicleSnapshot, parseWebSocketMessage } from './traffic'
 
 const trafficUpdate = {
   event: 'traffic.update',
@@ -37,11 +37,13 @@ describe('M2 TrafficState v1 parser', () => {
     expect(parseWebSocketMessage(event)).toEqual(event)
     expect(isVehicleSnapshot({ ...event.data, vehicles: [{ ...event.data.vehicles[0], x: Number.NaN }] })).toBe(false)
     expect(isVehicleSnapshot({ ...event.data, vehicles: [event.data.vehicles[0], event.data.vehicles[0]] })).toBe(false)
+    expect(isVehicleSnapshot({ ...event.data, timestamp: MAX_SIMULATION_TIMESTAMP_SECONDS + 1 })).toBe(false)
   })
 
   it('only promotes a generic loop result when it is an actual signal result', () => {
     expect(isSignalActuationResult({ success: true, target: 'I1', applied_duration: 20, current_phase: 'GREEN', applied_to: 'active_green', source: 'AI', message: 'Applied.' })).toBe(true)
     expect(isSignalActuationResult({ success: true, target: 'veh-1', applied_route: ['e1'], previous_route: ['e0'], source: 'AI', message: 'Rerouted.' })).toBe(false)
+    expect(isRouteActuationResult({ success: true, target: 'veh-1', applied_route: ['e1'], previous_route: ['e0'], source: 'AI', message: 'Rerouted.' })).toBe(true)
   })
 
   it('accepts only the canonical M2 control modes', () => {
