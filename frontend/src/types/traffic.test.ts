@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isControlMode, isSignalActuationResult, isTrafficSnapshot, isTrafficState, isVehicleSnapshot, parseWebSocketMessage } from './traffic'
+import { isControlMode, isControlModeResponse, isSignalActuationResult, isTrafficSnapshot, isTrafficState, isVehicleSnapshot, parseWebSocketMessage } from './traffic'
 
 const trafficUpdate = {
   event: 'traffic.update',
@@ -49,5 +49,10 @@ describe('M2 TrafficState v1 parser', () => {
     expect(isControlMode('MANUAL')).toBe(true)
     expect(isControlMode('EMERGENCY')).toBe(true)
     expect(isControlMode('auto')).toBe(false)
+  })
+
+  it('accepts only the existing control-mode endpoint response contract', () => {
+    expect(isControlModeResponse({ mode: 'AUTO', description: 'Automated control', previous_mode: null })).toBe(true)
+    expect(isControlModeResponse({ mode: 'AUTO', description: 'Automated control', previous_mode: 'invalid' })).toBe(false)
   })
 })

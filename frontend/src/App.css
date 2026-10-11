@@ -74,6 +74,11 @@ svg { flex-shrink: 0; }
 .step-button { display: flex; align-items: center; gap: 6px; justify-content: space-between; width: 100%; border: 1px solid #31515a; background: #16343d; color: #b6e4e2; border-radius: 4px; padding: 10px 6px; margin-top: 17px; font-size: 9px; }
 .step-button:hover { background: #214851; }
 .step-button:disabled { opacity: .4; }
+.control-mode-picker { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 14px; }
+.control-mode-picker button { min-width: 0; border: 1px solid #29454e; border-radius: 4px; padding: 7px 3px; color: #7e9ba5; background: #0a1921; font: 7px var(--mono); }
+.control-mode-picker button:hover:not(:disabled), .control-mode-picker button.active { color: #c8f2ee; border-color: #47818a; background: #17343d; }
+.control-mode-picker button:disabled { opacity: .48; }
+.control-truth { display: block; margin-top: 10px; color: #627f89; font-size: 7px; line-height: 1.5; }
 .sidebar-note { display: flex; align-items: center; gap: 9px; padding: 20px 7px 2px; color: #839ca6; font-size: 10px; }
 .sidebar-note small { display: block; margin-top: 4px; font: 8px var(--mono); color: #526c79; }
 .tiny-grid { color: #4c7a84; font-size: 22px; }
@@ -155,6 +160,15 @@ kbd { border: 1px solid #35525c; color: #9bb8c0; border-radius: 3px; font: 8px v
 .metric-grid dd.vehicle-code { font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vehicle-type { display: block; color: #c9dce0; font: 12px var(--mono); margin-top: 17px; }
 .vehicle-follow-button { margin-top: 18px; }
+.prevention-copy { margin: 15px 0 13px; color: #78959f; font-size: 9px; line-height: 1.65; }
+.cycle-result { display: grid; gap: 5px; padding: 10px; border: 1px solid #28404a; border-radius: 5px; background: #0a1b23; color: #8eaab2; font-size: 8px; line-height: 1.4; }
+.cycle-result.successful { border-color: #326051; }
+.cycle-result.failed { border-color: #6c4544; }
+.cycle-result span { color: #7f9ca5; }
+.cycle-result.successful span { color: var(--mint); }
+.cycle-result.failed span { color: var(--red); }
+.cycle-result b { color: #c6dce0; font: 8px var(--mono); font-weight: 400; }
+.cycle-result small { color: #d1948d; font-size: 7px; overflow-wrap: anywhere; }
 .congestion-heading { display: flex; justify-content: space-between; color: #8ba6af; font-size: 10px; }
 .congestion-heading b { color: var(--traffic); font: 11px var(--mono); }
 .congestion-track { height: 4px; border-radius: 4px; background: #253b43; margin: 11px 0; overflow: hidden; }
@@ -257,6 +271,7 @@ kbd { border: 1px solid #35525c; color: #9bb8c0; border-radius: 3px; font: 8px v
   .control-sidebar > .sidebar-heading, .control-sidebar > .mode-list, .control-sidebar > .side-rule, .control-sidebar > .junction-list, .control-sidebar > .sidebar-note { display: none; }
   .side-health { margin: 0; padding: 14px; }
   .side-health p { margin: 11px 0 4px; }
+  .control-mode-picker button { padding: 8px 5px; font-size: 8px; }
   .step-button { margin-top: 13px; padding: 11px 8px; font-size: 10px; }
   .twin-area { order: 1; height: auto; min-height: 0; }
   .twin-header { height: 79px; padding: 0 17px; }

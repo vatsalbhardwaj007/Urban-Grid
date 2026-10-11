@@ -60,7 +60,7 @@ function UrbanGridDashboard() {
   return <main className="app-shell">
     <TopBar status={traffic.status} health={traffic.health} lastReceivedAt={traffic.lastReceivedAt} />
     <div className="workspace">
-      <ControlSidebar viewMode={effectiveViewMode} selectedJunctionId={selectedJunctionId} onModeChange={changeMode} onSelectJunction={selectJunction} onStepAiLoop={traffic.stepAiLoop} stepDisabled={traffic.health?.simulation_connected !== true} loopStatus={traffic.loopStatus} trafficByIntersection={renderTraffic} followVehicleAvailable={Boolean(selectedVehicle)} />
+      <ControlSidebar viewMode={effectiveViewMode} selectedJunctionId={selectedJunctionId} onModeChange={changeMode} onSelectJunction={selectJunction} onStepAiLoop={traffic.stepAiLoop} onSetControlMode={traffic.setControlMode} stepDisabled={traffic.health?.simulation_connected !== true} loopStatus={traffic.loopStatus} trafficByIntersection={renderTraffic} followVehicleAvailable={Boolean(selectedVehicle)} />
       <section className="twin-area" aria-label="Urban traffic digital twin">
         <header className="twin-header"><div><div className="eyebrow">DIGITAL TWIN <span>/</span> URBAN DISTRICT</div><h2>City traffic monitor</h2></div><span className="scene-mode">3D <span>{traffic.status === 'connected' ? 'LIVE VIEW' : 'LAST SNAPSHOT'}</span></span></header>
         <div className="network-summary"><span><i className="summary-dot" /><b>{observedCount}</b> / 4 {traffic.status === 'connected' ? 'nodes reporting' : 'nodes received'}</span><span><b>{observedCount ? totalQueue : '—'}</b> queued vehicles</span><span><b>{vehicleTracks.length}</b> live vehicles</span><span className="summary-mode">{traffic.loopStatus?.mode ?? 'AWAITING BACKEND'}</span></div>
@@ -75,7 +75,7 @@ function UrbanGridDashboard() {
         <ViewSwitcher viewMode={effectiveViewMode} onModeChange={changeMode} followVehicleAvailable={Boolean(selectedVehicle)} />
         <footer className="telemetry-footer"><span className={`feed-state connection-${traffic.status}`}><i/>{traffic.status.toUpperCase()}</span><span className="footer-message" title={traffic.error ?? undefined}>{traffic.error ?? (traffic.malformedEvents ? `${traffic.malformedEvents} invalid events ignored` : 'SUMO → TRAFFIC STATE → DIGITAL TWIN')}</span><span className="reset-shortcut"><kbd>R</kbd> Reset view</span></footer>
       </section>
-      <ContextPanel junction={selectedJunction} traffic={renderTraffic[selectedJunction.id]} allTraffic={renderTraffic} availableJunctions={urbanGridTopology.junctions} loopStatus={traffic.loopStatus} latestIntervention={traffic.latestIntervention} status={traffic.status} onSelectJunction={selectJunction} selectedVehicle={selectedVehicle} onFollowVehicle={followSelectedVehicle} onClearVehicle={() => { setSelectedVehicleId(null); if (effectiveViewMode === 'followVehicle') resetCamera() }} />
+      <ContextPanel junction={selectedJunction} traffic={renderTraffic[selectedJunction.id]} allTraffic={renderTraffic} availableJunctions={urbanGridTopology.junctions} loopStatus={traffic.loopStatus} latestIntervention={traffic.latestIntervention} lastControlCycle={traffic.lastControlCycle} status={traffic.status} onSelectJunction={selectJunction} selectedVehicle={selectedVehicle} onFollowVehicle={followSelectedVehicle} onClearVehicle={() => { setSelectedVehicleId(null); if (effectiveViewMode === 'followVehicle') resetCamera() }} />
     </div>
   </main>
 }

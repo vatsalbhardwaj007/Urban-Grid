@@ -1,6 +1,6 @@
 import { backendConfig } from '../config/backend'
-import type { ControlCycleResult, ControlLoopStatus, HealthResponse, TrafficSnapshot, VehicleSnapshot } from '../types/traffic'
-import { isControlMode, isTrafficSnapshot, isVehicleSnapshot } from '../types/traffic'
+import type { ControlCycleResult, ControlLoopStatus, ControlMode, ControlModeResponse, HealthResponse, TrafficSnapshot, VehicleSnapshot } from '../types/traffic'
+import { isControlMode, isControlModeResponse, isTrafficSnapshot, isVehicleSnapshot } from '../types/traffic'
 
 export class BackendRequestError extends Error {
   readonly status: number | undefined
@@ -36,4 +36,9 @@ export async function getIntersections() { const data = await request('/api/inte
 export async function getTrafficSnapshot(): Promise<TrafficSnapshot> { const data = await request('/api/traffic-state'); if (!isTrafficSnapshot(data)) throw new BackendRequestError('Unexpected /api/traffic-state response.'); return data }
 export async function getVehicleSnapshot(): Promise<VehicleSnapshot> { const data = await request('/api/simulation/vehicles'); if (!isVehicleSnapshot(data)) throw new BackendRequestError('Unexpected /api/simulation/vehicles response.'); return data }
 export async function getControlLoopStatus() { const data = await request('/api/control/loop/status'); if (!isControlLoopStatus(data)) throw new BackendRequestError('Unexpected /api/control/loop/status response.'); return data }
+export async function setControlMode(mode: ControlMode): Promise<ControlModeResponse> {
+  const data = await request('/api/control/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) })
+  if (!isControlModeResponse(data)) throw new BackendRequestError('Unexpected /api/control/mode response.')
+  return data
+}
 export async function stepControlLoop() { const data = await request('/api/control/loop/step', { method: 'POST' }); if (!isControlCycleResult(data)) throw new BackendRequestError('Unexpected /api/control/loop/step response.'); return data }

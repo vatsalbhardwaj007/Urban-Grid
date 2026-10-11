@@ -60,6 +60,7 @@ export interface HealthResponse { status: 'ok'; simulation_connected: boolean; s
 export interface ApiErrorResponse { detail: string | Array<{ loc: Array<string | number>; msg: string; type: string }> }
 export interface ControlLoopStatus { mode: ControlMode; is_running: boolean; current_cycle: number; step_interval: number; cycle_delay: number; error_policy: string; decision_engine: string }
 /** Returned by the existing control-mode endpoint; it intentionally contains no telemetry. */
+export interface ControlModeResponse { mode: ControlMode; description: string; previous_mode: ControlMode | null }
 export interface SignalActuationResult { success: boolean; target: string; applied_duration: number; current_phase: string; applied_to: string; source: ActionSource; message: string }
 /** M2 declares control-loop action_results as list[dict[str, Any]]. */
 export interface ControlCycleResult { cycle: number; simulation_time: number; mode: ControlMode; states: TrafficSnapshot; actions_attempted: number; action_results: Array<Record<string, unknown>>; errors: string[]; success: boolean }
@@ -90,6 +91,10 @@ export function isVehicleSnapshot(value: unknown): value is VehicleSnapshot {
 
 export function isTrafficSnapshot(value: unknown): value is TrafficSnapshot {
   return isRecord(value) && Object.values(value).every(isTrafficState)
+}
+
+export function isControlModeResponse(value: unknown): value is ControlModeResponse {
+  return isRecord(value) && isControlMode(value.mode) && typeof value.description === 'string' && (value.previous_mode === null || isControlMode(value.previous_mode))
 }
 
 export function parseWebSocketMessage(value: unknown): WebSocketIncomingMessage | null {

@@ -88,4 +88,11 @@ describe('traffic store REST fallback generations', () => {
 
     expect(Object.keys(staleResync.vehiclesById)).toEqual(['ws-car'])
   })
+
+  it('updates the displayed mode only after a confirmed control-mode response', () => {
+    const updated = trafficStoreReducer(bootstrapped(), { type: 'CONTROL_MODE', mode: 'MANUAL' })
+
+    expect(updated.loopStatus?.mode).toBe('MANUAL')
+    expect(updated.error).toBeNull()
+  })
 })

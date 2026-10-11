@@ -1,9 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react'
 import { CANONICAL_INTERSECTION_IDS } from '../data/urbanGridTopology'
-import { getControlLoopStatus, getHealth, getIntersections, getTrafficSnapshot, getVehicleSnapshot, stepControlLoop } from '../services/backend'
+import { getControlLoopStatus, getHealth, getIntersections, getTrafficSnapshot, getVehicleSnapshot, setControlMode as requestControlMode, stepControlLoop } from '../services/backend'
 import { openTrafficSocket } from '../services/trafficSocket'
 import { isSignalActuationResult } from '../types/traffic'
-import type { ControlLoopStatus, HealthResponse, SignalActuationResult, TrafficSnapshot, TrafficState, VehicleSnapshot, VehicleTrack } from '../types/traffic'
+import type { ControlLoopStatus, ControlMode, HealthResponse, SignalActuationResult, TrafficSnapshot, TrafficState, VehicleSnapshot, VehicleTrack } from '../types/traffic'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'reconnecting'
 export type TrafficStoreState = {
@@ -19,6 +19,8 @@ export type TrafficStoreState = {
   vehicleRevision: number
   loopStatus: ControlLoopStatus | null
   latestIntervention: SignalActuationResult | null
+  /** Result metadata from the last explicit live loop step, never a derived outcome. */
+  lastControlCycle: { cycle: number; simulationTime: number; mode: ControlMode; actionsAttempted: number; success: boolean; errors: string[] } | null
   /** Browser receipt time in epoch milliseconds. */
   lastReceivedAt: number | null
   /** Latest SUMO simulation timestamp in seconds. */
@@ -47,11 +49,12 @@ type Action =
   | { type: 'POLL_SUCCESS'; snapshot: TrafficSnapshot; generation: number }
   | { type: 'POLL_FAILURE'; error: string; generation: number }
   | { type: 'MALFORMED' }
-  | { type: 'LOOP_STEP'; snapshot: TrafficSnapshot; mode: ControlLoopStatus['mode']; intervention: SignalActuationResult | null }
+  | { type: 'LOOP_STEP'; snapshot: TrafficSnapshot; mode: ControlLoopStatus['mode']; intervention: SignalActuationResult | null; cycle: number; simulationTime: number; actionsAttempted: number; success: boolean; errors: string[] }
+  | { type: 'CONTROL_MODE'; mode: ControlMode }
   | { type: 'LOOP_ERROR'; error: string }
 
 // oxlint-disable-next-line react/only-export-components
-export const initialTrafficStoreState: TrafficStoreState = { status: 'connecting', health: null, intersectionIds: [], trafficByIntersection: {}, vehiclesById: {}, vehicleSnapshotTimestamp: null, vehicleLastReceivedAt: null, vehicleRevision: 0, loopStatus: null, latestIntervention: null, lastReceivedAt: null, lastSimulationTimestamp: null, lastHeartbeatAt: null, error: null, malformedEvents: 0, unknownEvents: 0, pollingGeneration: 0 }
+export const initialTrafficStoreState: TrafficStoreState = { status: 'connecting', health: null, intersectionIds: [], trafficByIntersection: {}, vehiclesById: {}, vehicleSnapshotTimestamp: null, vehicleLastReceivedAt: null, vehicleRevision: 0, loopStatus: null, latestIntervention: null, lastControlCycle: null, lastReceivedAt: null, lastSimulationTimestamp: null, lastHeartbeatAt: null, error: null, malformedEvents: 0, unknownEvents: 0, pollingGeneration: 0 }
 const receiptNow = () => Date.now()
 
 function latestSimulationTimestamp(snapshot: TrafficSnapshot) {
@@ -126,13 +129,14 @@ export function trafficStoreReducer(state: TrafficStoreState, action: Action): T
   }
   if (action.type === 'LOOP_STEP') {
     const loopStatus = state.loopStatus ? { ...state.loopStatus, mode: action.mode } : state.loopStatus
-    return { ...state, ...replaceSnapshot(state, action.snapshot), loopStatus, latestIntervention: action.intervention, error: null }
+    return { ...state, ...replaceSnapshot(state, action.snapshot), loopStatus, latestIntervention: action.intervention, lastControlCycle: { cycle: action.cycle, simulationTime: action.simulationTime, mode: action.mode, actionsAttempted: action.actionsAttempted, success: action.success, errors: action.errors }, error: null }
   }
+  if (action.type === 'CONTROL_MODE') return { ...state, loopStatus: state.loopStatus ? { ...state.loopStatus, mode: action.mode } : state.loopStatus, error: null }
   if (action.type === 'LOOP_ERROR') return { ...state, error: action.error }
   return state
 }
 
-type TrafficStore = TrafficStoreState & { stepAiLoop: () => Promise<void> }
+type TrafficStore = TrafficStoreState & { stepAiLoop: () => Promise<void>; setControlMode: (mode: ControlMode) => Promise<void> }
 const TrafficContext = createContext<TrafficStore | null>(null)
 
 export function TrafficProvider({ children }: { children: React.ReactNode }) {
@@ -311,10 +315,16 @@ export function TrafficProvider({ children }: { children: React.ReactNode }) {
     try {
       const result = await stepControlLoop()
       const intervention = result.action_results.find((action): action is Record<string, unknown> & SignalActuationResult => isSignalActuationResult(action)) ?? null
-      dispatch({ type: 'LOOP_STEP', snapshot: result.states, mode: result.mode, intervention })
+      dispatch({ type: 'LOOP_STEP', snapshot: result.states, mode: result.mode, intervention, cycle: result.cycle, simulationTime: result.simulation_time, actionsAttempted: result.actions_attempted, success: result.success, errors: result.errors })
     } catch (error) { dispatch({ type: 'LOOP_ERROR', error: error instanceof Error ? error.message : 'Unable to step the AI loop.' }) }
   }, [])
-  const value = useMemo<TrafficStore>(() => ({ ...state, stepAiLoop }), [state, stepAiLoop])
+  const setControlMode = useCallback(async (mode: ControlMode) => {
+    try {
+      const response = await requestControlMode(mode)
+      dispatch({ type: 'CONTROL_MODE', mode: response.mode })
+    } catch (error) { dispatch({ type: 'LOOP_ERROR', error: error instanceof Error ? error.message : 'Unable to change the control mode.' }) }
+  }, [])
+  const value = useMemo<TrafficStore>(() => ({ ...state, stepAiLoop, setControlMode }), [state, stepAiLoop, setControlMode])
   return <TrafficContext.Provider value={value}>{children}</TrafficContext.Provider>
 }
 
