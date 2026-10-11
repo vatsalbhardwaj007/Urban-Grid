@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -25,6 +26,20 @@ _bridge: TraCIBridge | None = None
 _provider: TrafficStateProvider | None = None
 _dispatcher: ActionDispatcher | None = None
 _control_loop: SimulationControlLoop | None = None
+_event_loop: asyncio.AbstractEventLoop | None = None
+
+
+def set_global_event_loop(loop: asyncio.AbstractEventLoop | None) -> None:
+    """Store the running FastAPI event loop and attach it to the control loop."""
+    global _event_loop
+    _event_loop = loop
+    if _control_loop is not None:
+        _control_loop.set_event_loop(loop)
+
+
+def get_global_event_loop() -> asyncio.AbstractEventLoop | None:
+    """Return the global FastAPI event loop if registered."""
+    return _event_loop
 
 
 def get_bridge() -> TraCIBridge:
@@ -85,6 +100,19 @@ def get_control_loop() -> SimulationControlLoop:
             broadcaster=broadcaster,
             decision_engine=decision_engine,
         )
+
+    # Ensure event loop is attached if available
+    if _control_loop.event_loop is None or not _control_loop.event_loop.is_running():
+        if _event_loop is not None and _event_loop.is_running():
+            _control_loop.set_event_loop(_event_loop)
+        else:
+            try:
+                loop = asyncio.get_running_loop()
+                if loop.is_running():
+                    set_global_event_loop(loop)
+            except RuntimeError:
+                pass
+
     return _control_loop
 
 
@@ -98,10 +126,11 @@ def start_simulation() -> TrafficStateProvider:
 
 def stop_simulation() -> None:
     """Terminate TraCI and cleanly shut down the SUMO process."""
-    global _bridge, _provider, _dispatcher, _control_loop
+    global _bridge, _provider, _dispatcher, _control_loop, _event_loop
     if _control_loop is not None:
         _control_loop._is_running = False
     _control_loop = None
+    _event_loop = None
     if _bridge is not None:
         _bridge.close()
     _bridge = None

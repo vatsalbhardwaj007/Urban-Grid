@@ -124,9 +124,10 @@ class TrafficStateProvider:
             ValueError: If intersection_id is not valid.
             TraCIBridgeError: If TraCI bridge is not connected.
         """
-        sensor = self.get_sensor(intersection_id)
-        current_time = self.simulation_time
-        return sensor.measure(timestamp=current_time)
+        with self._bridge.lock:
+            sensor = self.get_sensor(intersection_id)
+            current_time = self.simulation_time
+            return sensor.measure(timestamp=current_time)
 
     def get_all_states(self) -> dict[str, TrafficState]:
         """Obtain canonical TrafficState observations for all monitored intersections.
@@ -137,15 +138,16 @@ class TrafficStateProvider:
         Returns:
             Dictionary mapping intersection_id to canonical TrafficState instance.
         """
-        self._ensure_connected()
-        self._ensure_sensors()
-        assert self._sensors is not None
+        with self._bridge.lock:
+            self._ensure_connected()
+            self._ensure_sensors()
+            assert self._sensors is not None
 
-        current_time = self.simulation_time
-        return {
-            iid: sensor.measure(timestamp=current_time)
-            for iid, sensor in self._sensors.items()
-        }
+            current_time = self.simulation_time
+            return {
+                iid: sensor.measure(timestamp=current_time)
+                for iid, sensor in self._sensors.items()
+            }
 
     def step_and_get_states(self, steps: int = 1) -> dict[str, TrafficState]:
         """Advance simulation and return consistent states for all intersections.
@@ -157,10 +159,11 @@ class TrafficStateProvider:
             Dictionary mapping intersection_id to canonical TrafficState observed
             at the newly advanced simulation timestamp.
         """
-        self._ensure_connected()
-        if steps > 0:
-            self._bridge.step_many(steps)
-        return self.get_all_states()
+        with self._bridge.lock:
+            self._ensure_connected()
+            if steps > 0:
+                self._bridge.step_many(steps)
+            return self.get_all_states()
 
     def reset(self) -> None:
         """Reset temporal state across all constituent sensors."""

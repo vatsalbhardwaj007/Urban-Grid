@@ -95,11 +95,12 @@ class LaneSensor:
         """Return the physical length of the monitored lane in meters."""
         if self._lane_length is None:
             self._ensure_connected()
-            conn = self.bridge.raw_connection
-            try:
-                self._lane_length = float(conn.lane.getLength(self.lane_id))
-            except Exception as exc:
-                raise ValueError(f"Lane '{self.lane_id}' not found in simulation network: {exc}") from exc
+            with self.bridge.lock:
+                conn = self.bridge.raw_connection
+                try:
+                    self._lane_length = float(conn.lane.getLength(self.lane_id))
+                except Exception as exc:
+                    raise ValueError(f"Lane '{self.lane_id}' not found in simulation network: {exc}") from exc
         return self._lane_length
 
     def _ensure_connected(self) -> None:
@@ -121,30 +122,32 @@ class LaneSensor:
             Validated canonical LaneFeature instance.
         """
         self._ensure_connected()
-        conn = self.bridge.raw_connection
 
-        current_time = float(timestamp if timestamp is not None else self.bridge.simulation_time)
+        with self.bridge.lock:
+            conn = self.bridge.raw_connection
 
-        try:
-            vehicle_ids = list(conn.lane.getLastStepVehicleIDs(self.lane_id))
-        except Exception as exc:
-            raise ValueError(f"Failed to inspect lane '{self.lane_id}': {exc}") from exc
+            current_time = float(timestamp if timestamp is not None else self.bridge.simulation_time)
 
-        count = len(vehicle_ids)
-        length = self.lane_length
+            try:
+                vehicle_ids = list(conn.lane.getLastStepVehicleIDs(self.lane_id))
+            except Exception as exc:
+                raise ValueError(f"Failed to inspect lane '{self.lane_id}': {exc}") from exc
 
-        if count == 0:
-            mean_speed = 0.0
-            queue_length = 0
-            occupancy = 0.0
-            density = 0.0
-        else:
-            speeds = [float(conn.vehicle.getSpeed(vid)) for vid in vehicle_ids]
-            mean_speed = sum(speeds) / count if count > 0 else 0.0
-            queue_length = sum(1 for spd in speeds if spd <= self.queue_speed_threshold)
-            raw_occupancy = float(conn.lane.getLastStepOccupancy(self.lane_id))
-            occupancy = min(1.0, max(0.0, raw_occupancy))
-            density = (count / length) * 1000.0 if length > 0.0 else 0.0
+            count = len(vehicle_ids)
+            length = self.lane_length
+
+            if count == 0:
+                mean_speed = 0.0
+                queue_length = 0
+                occupancy = 0.0
+                density = 0.0
+            else:
+                speeds = [float(conn.vehicle.getSpeed(vid)) for vid in vehicle_ids]
+                mean_speed = sum(speeds) / count if count > 0 else 0.0
+                queue_length = sum(1 for spd in speeds if spd <= self.queue_speed_threshold)
+                raw_occupancy = float(conn.lane.getLastStepOccupancy(self.lane_id))
+                occupancy = min(1.0, max(0.0, raw_occupancy))
+                density = (count / length) * 1000.0 if length > 0.0 else 0.0
 
         # Arrival rate derived from newly entered vehicles across steps
         curr_vehicle_set = set(vehicle_ids)
@@ -210,21 +213,22 @@ class IntersectionSensor:
         """Return list of monitored incoming approach lane IDs."""
         if self._monitored_lanes is None:
             self._ensure_connected()
-            conn = self.bridge.raw_connection
-            tls_list = conn.trafficlight.getIDList()
-            if self.intersection_id not in tls_list:
-                raise ValueError(
-                    f"Traffic light / intersection '{self.intersection_id}' not found in simulation network."
-                )
-            # Discover controlled incoming lanes, filtering out duplicates and internal lanes
-            raw_lanes = conn.trafficlight.getControlledLanes(self.intersection_id)
-            seen: set[str] = set()
-            unique_lanes: list[str] = []
-            for lid in raw_lanes:
-                if not lid.startswith(":") and lid not in seen:
-                    seen.add(lid)
-                    unique_lanes.append(lid)
-            self._monitored_lanes = unique_lanes
+            with self.bridge.lock:
+                conn = self.bridge.raw_connection
+                tls_list = conn.trafficlight.getIDList()
+                if self.intersection_id not in tls_list:
+                    raise ValueError(
+                        f"Traffic light / intersection '{self.intersection_id}' not found in simulation network."
+                    )
+                # Discover controlled incoming lanes, filtering out duplicates and internal lanes
+                raw_lanes = conn.trafficlight.getControlledLanes(self.intersection_id)
+                seen: set[str] = set()
+                unique_lanes: list[str] = []
+                for lid in raw_lanes:
+                    if not lid.startswith(":") and lid not in seen:
+                        seen.add(lid)
+                        unique_lanes.append(lid)
+                self._monitored_lanes = unique_lanes
 
         return self._monitored_lanes
 
@@ -261,63 +265,64 @@ class IntersectionSensor:
         """
         self._ensure_connected()
 
-        current_time = float(timestamp if timestamp is not None else self.bridge.simulation_time)
+        with self.bridge.lock:
+            current_time = float(timestamp if timestamp is not None else self.bridge.simulation_time)
 
-        # Measure each constituent approach lane
-        lane_features: list[LaneFeature] = [
-            sensor.measure(timestamp=current_time)
-            for sensor in self.lane_sensors.values()
-        ]
+            # Measure each constituent approach lane
+            lane_features: list[LaneFeature] = [
+                sensor.measure(timestamp=current_time)
+                for sensor in self.lane_sensors.values()
+            ]
 
-        # Total queue: sum of lane queues
-        total_queue = sum(lf.queue_length for lf in lane_features)
+            # Total queue: sum of lane queues
+            total_queue = sum(lf.queue_length for lf in lane_features)
 
-        # Total vehicles across all approach lanes
-        total_vehicles = sum(lf.vehicle_count for lf in lane_features)
+            # Total vehicles across all approach lanes
+            total_vehicles = sum(lf.vehicle_count for lf in lane_features)
 
-        # Aggregate mean speed: vehicle-weighted average across lanes (0.0 if no vehicles)
-        if total_vehicles > 0:
-            weighted_speed_sum = sum(lf.mean_speed * lf.vehicle_count for lf in lane_features)
-            mean_speed = weighted_speed_sum / total_vehicles
-        else:
-            mean_speed = 0.0
+            # Aggregate mean speed: vehicle-weighted average across lanes (0.0 if no vehicles)
+            if total_vehicles > 0:
+                weighted_speed_sum = sum(lf.mean_speed * lf.vehicle_count for lf in lane_features)
+                mean_speed = weighted_speed_sum / total_vehicles
+            else:
+                mean_speed = 0.0
 
-        # Aggregate density: total vehicles / total monitored lane length in km
-        total_length_km = sum(sensor.lane_length for sensor in self.lane_sensors.values()) / 1000.0
-        density = (total_vehicles / total_length_km) if total_length_km > 0.0 else 0.0
+            # Aggregate density: total vehicles / total monitored lane length in km
+            total_length_km = sum(sensor.lane_length for sensor in self.lane_sensors.values()) / 1000.0
+            density = (total_vehicles / total_length_km) if total_length_km > 0.0 else 0.0
 
-        # Aggregate arrival rate: unique new vehicles entering intersection approaches
-        conn = self.bridge.raw_connection
-        all_curr_vids: set[str] = set()
-        for lid in self.monitored_lanes:
-            all_curr_vids.update(conn.lane.getLastStepVehicleIDs(lid))
+            # Aggregate arrival rate: unique new vehicles entering intersection approaches
+            conn = self.bridge.raw_connection
+            all_curr_vids: set[str] = set()
+            for lid in self.monitored_lanes:
+                all_curr_vids.update(conn.lane.getLastStepVehicleIDs(lid))
 
-        if self._prev_timestamp is not None and self._prev_vehicle_ids is not None:
-            dt = current_time - self._prev_timestamp
-            new_arrivals = len(all_curr_vids - self._prev_vehicle_ids)
-            arrival_rate = (new_arrivals / dt) if dt > 0.0 else 0.0
-        else:
-            arrival_rate = 0.0
+            if self._prev_timestamp is not None and self._prev_vehicle_ids is not None:
+                dt = current_time - self._prev_timestamp
+                new_arrivals = len(all_curr_vids - self._prev_vehicle_ids)
+                arrival_rate = (new_arrivals / dt) if dt > 0.0 else 0.0
+            else:
+                arrival_rate = 0.0
 
-        self._prev_vehicle_ids = all_curr_vids
-        self._prev_timestamp = current_time
+            self._prev_vehicle_ids = all_curr_vids
+            self._prev_timestamp = current_time
 
-        # Traffic light signal phase and remaining green time
-        tls_state = self.bridge.get_traffic_light_state(self.intersection_id)
-        signal_phase = map_signal_phase(
-            state_str=tls_state.get("state", ""),
-            phase_name=tls_state.get("phase_name", ""),
-        )
+            # Traffic light signal phase and remaining green time
+            tls_state = self.bridge.get_traffic_light_state(self.intersection_id)
+            signal_phase = map_signal_phase(
+                state_str=tls_state.get("state", ""),
+                phase_name=tls_state.get("phase_name", ""),
+            )
 
-        if signal_phase == "GREEN":
-            green_remaining = float(tls_state.get("remaining_phase_time", 0.0))
-        else:
-            green_remaining = 0.0
+            if signal_phase == "GREEN":
+                green_remaining = float(tls_state.get("remaining_phase_time", 0.0))
+            else:
+                green_remaining = 0.0
 
-        return TrafficState(
-            timestamp=round(current_time, 4),
-            intersection_id=self.intersection_id,
-            lane_features=lane_features,
+            return TrafficState(
+                timestamp=round(current_time, 4),
+                intersection_id=self.intersection_id,
+                lane_features=lane_features,
             total_queue=total_queue,
             mean_speed=round(mean_speed, 4),
             arrival_rate=round(arrival_rate, 4),
