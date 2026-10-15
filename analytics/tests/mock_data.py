@@ -281,3 +281,43 @@ MOCK_TRAFFIC_STATE_URBAN_GRID_STREAM: list[dict[str, Any]] = [
         "green_remaining": 10.0,
     },
 ]
+
+# ---------------------------------------------------------------------------
+# 7. Multi-Intersection Service Layer Test Fixtures (dict[str, TrafficState])
+# ---------------------------------------------------------------------------
+MOCK_MULTI_INTERSECTION_SNAPSHOT: dict[str, Any] = {
+    "int_main_1": MOCK_TRAFFIC_STATE_SINGLE,
+    "int_side_2": {
+        "_label": "TEST DATA ONLY - SECOND INTERSECTION SNAPSHOT",
+        "timestamp": 10.0,
+        "intersection_id": "int_side_2",
+        "lane_features": [
+            {
+                "lane_id": "lane_east_0",
+                "vehicle_count": 2,
+                "mean_speed": 16.0,
+                "queue_length": 1.0,
+                "occupancy": 0.10,
+                "arrival_rate": 0.8,
+                "density": 12.0,
+                "flow": 10.0,
+            }
+        ],
+        "total_queue": 1.0,
+        "mean_speed": 16.0,
+        "arrival_rate": 0.8,
+        "density": 12.0,
+        "signal_phase": 1,
+        "green_remaining": 8.0,
+    },
+}
+
+MOCK_SERVICE_BASELINE_RUN: list[dict[str, Any]] = [
+    {"int_main_1": MOCK_TRAFFIC_STATE_BASELINE_STREAM[0]},
+    {"int_main_1": MOCK_TRAFFIC_STATE_BASELINE_STREAM[1]},
+]
+
+MOCK_SERVICE_URBAN_GRID_RUN: list[dict[str, Any]] = [
+    {"int_main_1": MOCK_TRAFFIC_STATE_URBAN_GRID_STREAM[0]},
+    {"int_main_1": MOCK_TRAFFIC_STATE_URBAN_GRID_STREAM[1]},
+]
